@@ -23,8 +23,6 @@ def transaction(pool):
     # Manage the connection, transaction and cursor from a connection pool.
     conn = pool.getconn()
     try:
-        # This is for NOTIFY consistency, according to psycopg2 doc.
-        conn.set_isolation_level(ISOLATION_LEVEL_AUTOCOMMIT)
         with conn:  # Wraps in a transaction.
             with conn.cursor() as curs:
                 yield curs
@@ -77,6 +75,20 @@ class PostgresConsumer(Consumer):
         self.pool = pool
         self.queue_name = queue_name
         self.notifies = []
+        self._listen_conn = None
+
+    @property
+    def listen_conn(self):
+        if self._listen_conn is None:
+            logger.debug("Opening LISTEN connection.")
+            self._listen_conn = conn = self.pool.getconn()
+            # This is for NOTIFY consistency, according to psycopg2 doc.
+            conn.set_isolation_level(ISOLATION_LEVEL_AUTOCOMMIT)
+            channel = quote_ident(f"dramatiq.{self.queue_name}.enqueue", conn)
+            with conn.cursor() as curs:
+                logger.debug("Listening on channel %s.", channel)
+                curs.execute(f"LISTEN {channel};")
+        return self._listen_conn
 
     def __next__(self):
         while True:
@@ -102,6 +114,10 @@ class PostgresConsumer(Consumer):
             WHERE message_id = %s AND "state" <> 'done'
             """), (message.message_id,))
 
+    def close(self):
+        if self._listen_conn:
+            self._listen_conn.close()
+
     def consume_one(self, message):
         # Race to process this message.
         with transaction(self.pool) as curs:
@@ -114,12 +130,12 @@ class PostgresConsumer(Consumer):
             return 1 == curs.rowcount
 
     def listen(self):
-        with transaction(self.pool) as curs:
-            channel = quote_ident(f"dramatiq.{self.queue_name}.enqueue", curs)
-            logger.debug("Listening on channel %s.", channel)
-            curs.execute(f"LISTEN {channel};")
+        with self.listen_conn.cursor() as curs:
             while not self.notifies:
                 fd_lists = select.select([curs.connection], [], [], 300)
-                if any(fd_lists):
-                    curs.connection.poll()
-                    self.notifies += curs.connection.notifies
+                if not any(fd_lists):
+                    # Loop on timeout
+                    continue
+                curs.connection.poll()
+                self.notifies += curs.connection.notifies
+                curs.connection.notifies[:] = []

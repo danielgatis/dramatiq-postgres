@@ -7,6 +7,7 @@ homepage = "https://gitlab.com/dalibo/dramatiq-pg"
 license = "PostgreSQL"
 readme = "README.rst"
 keywords = ["postgres", "task queue", "dramatiq"]
+include = ["dramatiq-pg/schema.sql"]
 
 [tool.poetry.dependencies]
 python = "^3.5"
