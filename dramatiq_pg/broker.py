@@ -100,6 +100,8 @@ class PostgresConsumer(Consumer):
             SET "state" = 'done'
             WHERE message_id = %s AND "state" <> 'done'
             """), (message.message_id,))
+            channel = quote_ident(f"dramatiq.{self.queue_name}.ack", curs)
+            curs.execute(f"NOTIFY {channel}, %s;", (message.message_id,))
 
     def close(self):
         if self.listen_conn:
