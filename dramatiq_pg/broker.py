@@ -62,7 +62,8 @@ class PostgresBroker(Broker):
             VALUES (%s, %s, 'queued', %s::jsonb)
           RETURNING queue_name, message
         )
-        SELECT pg_notify('dramatiq.' || queue_name || '.enqueue', message::text)
+        SELECT
+          pg_notify('dramatiq.' || queue_name || '.enqueue', message::text)
         FROM ins;
         """), (q, message.message_id, payload))
 
