@@ -27,7 +27,7 @@ class Listener(object):
         # self.conn.close()
         pass
 
-    def wait(self, count):
+    def wait(self, count=1):
         self.conn.poll()
         while len(self.conn.notifies) < count:
             rlist, *_ = select([self.conn], [], [], 300)
@@ -61,11 +61,10 @@ def pgconn():
 def flush_queue():
     truncate("dramatiq.queue")
     yield None
-    truncate("dramatiq.queue")
 
 
 @pytest.fixture()
-def flush_witness():
+def witness():
     truncate("functest.witness")
     yield None
 

@@ -57,19 +57,20 @@ class PostgresBroker(Broker):
     def enqueue(self, message, *, delay=None):
         q = message.queue_name
         insert = (dedent("""\
-        WITH ins AS (
-          INSERT INTO dramatiq.queue
-            (queue_name, message_id, "state", message)
-            VALUES (%s, %s, 'queued', %s)
+        WITH enqueued AS (
+          INSERT INTO dramatiq.queue (queue_name, message_id, "state", message)
+          VALUES (%s, %s, 'queued', %s)
+          ON CONFLICT (message_id)
+            DO UPDATE SET "state" = 'queued', message = EXCLUDED.message
           RETURNING queue_name, message
         )
         SELECT
           pg_notify('dramatiq.' || queue_name || '.enqueue', message::text)
-        FROM ins;
+        FROM enqueued;
         """), (q, message.message_id, Json(message.asdict())))
 
         with transaction(self.pool) as curs:
-            logger.debug("Inserting %s in %s.", message.message_id, q)
+            logger.debug("Upserting %s in %s.", message.message_id, q)
             curs.execute(*insert)
 
 
@@ -99,11 +100,16 @@ class PostgresConsumer(Consumer):
 
     def ack(self, message):
         with transaction(self.pool) as curs:
+            # dramatiq always ack a message, even if it has been requeued by
+            # the Retries middleware. Thus, only update message in state
+            # `consumed`.
             curs.execute(dedent("""\
             UPDATE dramatiq.queue
             SET "state" = 'done'
-            WHERE message_id = %s AND "state" <> 'done'
+            WHERE message_id = %s AND "state" = 'consumed'
             """), (message.message_id,))
+            # Always notify ack, even if message has been requeued. ack just
+            # mean message leaved state consumed.
             channel = quote_ident(f"dramatiq.{self.queue_name}.ack", curs)
             curs.execute(f"NOTIFY {channel}, %s;", (message.message_id,))
 

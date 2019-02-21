@@ -6,12 +6,14 @@
 #
 #     python example.py
 #
+# Random generator can be configured with SEED envvar for both commands.
 
 import logging
 import os
 import pdb
 import sys
-from time import sleep
+import random
+import time
 from warnings import filterwarnings
 
 filterwarnings("ignore", message="The psycopg2 wheel package will be renamed")  # noqa
@@ -28,9 +30,13 @@ pool = psycopg2.pool.ThreadedConnectionPool(0, 16, "")
 dramatiq.set_broker(dramatiq_pg.PostgresBroker(pool=pool))
 
 
+seed = int(os.environ.get('SEED', int(time.time())))
+random.seed(seed)
+
+
 @dramatiq.actor
 def sleeper(param):
-    sleep(param)
+    time.sleep(param)
 
 
 @dramatiq.actor
@@ -49,9 +55,22 @@ def writer(*args, **kwargs):
         pool.putconn(conn)
 
 
+# Set minimal value for max_backoff to avoid waiting 30days when running func
+# tests on CI.
+@dramatiq.actor(max_backoff=100)
+def failing(always=True, message="Forged failure"):
+    if always or random.randint(0, 1):
+        raise Exception(message)
+    else:
+        logger.info("Not failing (%s).", message)
+    writer(message=message, notice="Did not failed.")
+
+
 def main():
     for _ in range(10):
         sleeper.send(2)
+        writer.send('toto', named='titi')
+        failing.send(always=False)
 
 
 if '__main__' == __name__:
@@ -59,6 +78,7 @@ if '__main__' == __name__:
         level=logging.DEBUG,
         format='%(levelname)1.1s: %(message)s',
     )
+    logger.info("Random seed is %s.", seed)
 
     try:
         exit(main())
@@ -71,3 +91,6 @@ if '__main__' == __name__:
             pdb.post_mortem(sys.exc_info()[2])
 
     exit(os.EX_SOFTWARE)
+elif logging.getLogger().handlers:
+    # Log for dramatiq worker process.
+    logger.info("Random seed is %s.", seed)

@@ -2,12 +2,15 @@ from random import randint
 
 import pytest
 
-from example import writer
+from example import (
+    failing,
+    writer,
+)
 
 
 @pytest.mark.timeout(8)
-def test_massive(listener, pgconn, flush_witness):
-    count = 32
+def test_massive(listener, pgconn, witness):
+    count = 64
 
     # Start listening for ack.
     with listener:
@@ -21,8 +24,25 @@ def test_massive(listener, pgconn, flush_witness):
         # Wait for 32 ack from workers.
         listener.wait(count)
 
-    # Ensure the witness table has effectively
+    # Ensure the witness table has effectively been updated.
     with pgconn() as curs:
-        curs.execute("SELECT count(*) FROM dramatiq.queue;")
+        curs.execute("SELECT count(*) FROM functest.witness;")
         witness_count, = curs.fetchone()
     assert count == witness_count
+
+
+@pytest.mark.timeout(8)
+def test_retry(listener, pgconn, witness):
+    # Start listening for ack.
+    with listener:
+        failing.send(always=False, message="Testing retry")
+
+        failed = True
+        while failed:
+            # Wait for ack of current try.
+            listener.wait()
+
+            # Check whether the task has been sucessful.
+            with pgconn() as curs:
+                curs.execute("SELECT * FROM functest.witness;")
+            failed = 0 == curs.rowcount
