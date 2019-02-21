@@ -23,7 +23,7 @@ import psycopg2.pool
 
 logger = logging.getLogger(__name__)
 # Empty connstring let's you configure psycogp2 using PG* env vars.
-pool = psycopg2.pool.ThreadedConnectionPool(0, 4, "")
+pool = psycopg2.pool.ThreadedConnectionPool(0, 16, "")
 dramatiq.set_broker(dramatiq_pg.PostgresBroker(pool=pool))
 
 

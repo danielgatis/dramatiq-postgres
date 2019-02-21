@@ -16,6 +16,8 @@ psycopg2 = "^2.7"
 
 [tool.poetry.dev-dependencies]
 flake8 = "^3.7"
+pytest = "^4.3"
+pytest-timeout = "^1.3"
 
 [build-system]
 requires = ["poetry>=0.12"]

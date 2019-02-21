@@ -1,0 +1,16 @@
+stages:
+- test
+
+
+test-func:
+  stage: test
+  image: dalibo/cornac-sdk
+  before_script:
+  - eval $(ssh-agent -s)
+  - ssh-add <(echo "$GITLAB_DEPLOY_PRIVATE_KEY")
+  - mkdir --mode 0700 -p ~/.ssh
+  - install -m 0600 tests/recette/ci_ssh_config ~/.ssh/config
+  script:
+  - pip install -r requirements-ci.txt
+  - pip check
+  - pytest -x test/func/
