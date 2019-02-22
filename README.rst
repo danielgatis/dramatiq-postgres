@@ -12,7 +12,7 @@ Features
 ========
 
 - Super simple deployment.
-- Messages payload as JSONb.
+- Message payload stored as native JSONb.
 - All messages in a single table.
 - All data are wrapped in a dedicated schema.
 - Uses LISTEN/NOTIFY to keep worker sync. No polling.
@@ -48,6 +48,7 @@ Now declare/import actors and manage worker just like any `dramatiq setup
 Roadmap
 =======
 
+- Rejecting message.
 - Process missed notifies while resuming worker.
 - Result storage as JSONb.
 - Delayed task.
