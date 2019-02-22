@@ -13,8 +13,9 @@ broker.
 - Stores message payload as native JSONb.
 - Stores all messages in a single table, in a dedicated schema.
 - Uses LISTEN/NOTIFY to keep worker sync. No polling.
-- Reliable thanks to Postgres MVCC.
+- Replay pending messages on worker startup.
 - Requeues failed tasks.
+- Reliable thanks to Postgres MVCC.
 
 
 ## Installation
@@ -47,6 +48,17 @@ available, tested on CI.
 ## Roadmap
 
 - Rejecting message.
-- Process missed notifies while resuming worker.
 - Result storage as JSONb.
 - Delayed task.
+- CLI tool for init/migration, stats and maintainance.
+
+Feel free to suggest feature through support channels.
+
+
+## Support
+
+If you encounter a bug or miss a feature, please [open an issue on
+GitLab](https://gitlab.com/dalibo/dramatiq-pg/issues/new) with as much
+information as possible.
+
+dramatiq_pg is available under the PostgreSQL licence.
