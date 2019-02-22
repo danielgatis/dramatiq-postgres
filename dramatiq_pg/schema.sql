@@ -14,7 +14,7 @@ CREATE TABLE dramatiq.queue(
   queue_name TEXT NOT NULL DEFAULT 'default',
   message_id uuid UNIQUE,
   "state" dramatiq."state",
-  mtime TIMESTAMP WITH TIME ZONE DEFAULT NOW(),
+  mtime TIMESTAMP WITH TIME ZONE DEFAULT (NOW() AT TIME ZONE 'UTC'),
   -- message as encoded by dramatiq.
   message JSONB,
   "result" JSONB

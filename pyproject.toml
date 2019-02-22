@@ -1,11 +1,11 @@
 [tool.poetry]
 name = "dramatiq-pg"
-version = "0.1.0"
+version = "0.2.0"
 description = "Postgres Broker for Dramatiq Task Queue"
 authors = ["Étienne BERSAC"]
 homepage = "https://gitlab.com/dalibo/dramatiq-pg"
 license = "PostgreSQL"
-readme = "README.rst"
+readme = "README.md"
 keywords = ["postgres", "task queue", "dramatiq"]
 include = ["dramatiq-pg/schema.sql"]
 
