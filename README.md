@@ -47,7 +47,6 @@ available, tested on CI.
 
 ## Roadmap
 
-- Rejecting message.
 - Result storage as JSONb.
 - Delayed task.
 - CLI tool for init/migration, stats and maintainance.

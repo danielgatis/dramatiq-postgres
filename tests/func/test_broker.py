@@ -4,6 +4,7 @@ import pytest
 
 from example import (
     failing,
+    rejecting,
     writer,
 )
 
@@ -16,6 +17,7 @@ def test_prefill_queue():
         writer.send(message='prefill', index=i)
 
 
+@pytest.mark.timeout(4)
 def test_process_pending_messages(listener, pgconn, witness, worker):
     # This test must be the first with worker fixture, which starts dramatiq
     # worker process.
@@ -70,3 +72,15 @@ def test_retry(listener, pgconn, witness):
             with pgconn() as curs:
                 curs.execute("SELECT * FROM functest.witness;")
             failed = 0 == curs.rowcount
+
+
+@pytest.mark.timeout(4)
+def test_nack(listener, pgconn, witness):
+    with listener:
+        rejecting.send(message="Rejecting from func test.")
+        listener.wait(1)
+
+    with pgconn() as curs:
+        curs.execute("SELECT payload FROM functest.witness LIMIT 1;")
+        payload, = curs.fetchone()
+    assert 'Rejecting from func test.' == payload['kwargs']['message']

@@ -133,26 +133,20 @@ class PostgresConsumer(Consumer):
             # If no row was updated, this mean another worker has consumed it.
             return 1 == curs.rowcount
 
-    def wait_for_notify(self):
-        # Blocks until a notify is intercepted.
-
-        if self.listen_conn is None:
-            self.listen_conn = self.start_listening()
-            # We may have received a notify between LISTEN and SELECT of
-            # pending messages. That's not a problem because we are able to
-            # skip spurious notifies.
-            self.notifies = self.replay_pending_notifies()
-            logger.debug(
-                "Found %s pending messages in %s.",
-                len(self.notifies), self.queue_name)
-
-        while not self.notifies:
-            rlist, *_ = select.select([self.listen_conn], [], [], 300)
-            if not rlist:
-                continue  # Loop on timeout
-            self.listen_conn.poll()
-            self.notifies += self.listen_conn.notifies
-            self.listen_conn.notifies[:] = []
+    def nack(self, message):
+        with transaction(self.pool) as curs:
+            payload = Json(message.asdict())
+            curs.execute(dedent("""\
+            WITH updated AS (
+              UPDATE dramatiq.queue
+                 SET "state" = 'done', message = %s
+               WHERE message_id = %s AND state <> 'done'
+              RETURNING message
+            )
+            SELECT
+              pg_notify(%s, message::text)
+            FROM updated;
+            """), (payload, message.message_id, self.ack_channel))
 
     def replay_pending_notifies(self):
         logger.debug("Querying pending messages in %s.", self.queue_name)
@@ -178,3 +172,24 @@ class PostgresConsumer(Consumer):
             logger.debug("Listening on channel %s.", channel)
             curs.execute(f"LISTEN {channel};")
         return conn
+
+    def wait_for_notify(self):
+        # Blocks until a notify is intercepted.
+
+        if self.listen_conn is None:
+            self.listen_conn = self.start_listening()
+            # We may have received a notify between LISTEN and SELECT of
+            # pending messages. That's not a problem because we are able to
+            # skip spurious notifies.
+            self.notifies = self.replay_pending_notifies()
+            logger.debug(
+                "Found %s pending messages in %s.",
+                len(self.notifies), self.queue_name)
+
+        while not self.notifies:
+            rlist, *_ = select.select([self.listen_conn], [], [], 300)
+            if not rlist:
+                continue  # Loop on timeout
+            self.listen_conn.poll()
+            self.notifies += self.listen_conn.notifies
+            self.listen_conn.notifies[:] = []

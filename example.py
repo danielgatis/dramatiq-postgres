@@ -79,11 +79,18 @@ def failing(always=True, message="Forged failure"):
     writer(message=message, notice="Did not failed.")
 
 
+@dramatiq.actor(max_retries=0)
+def rejecting(message="Rejecting"):
+    writer(message=message)
+    raise Exception(message)
+
+
 def main():
     for _ in range(10):
         sleeper.send(2)
         writer.send('toto', named='titi')
         failing.send(always=False)
+    rejecting.send()
 
 
 if '__main__' == __name__:
