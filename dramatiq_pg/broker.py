@@ -140,8 +140,8 @@ class PostgresConsumer(Consumer):
             curs.execute(dedent("""\
             WITH updated AS (
               UPDATE dramatiq.queue
-                 SET "state" = 'done', message = %s
-               WHERE message_id = %s AND state <> 'done'
+                 SET "state" = 'rejected', message = %s
+               WHERE message_id = %s AND state <> 'rejected'
               RETURNING message
             )
             SELECT
