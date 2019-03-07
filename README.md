@@ -16,6 +16,7 @@ broker.
 - Replay pending messages on worker startup.
 - Requeues failed tasks.
 - Reliable thanks to Postgres MVCC.
+- Self-healing. Old messages are purge from time to time.
 
 Note that dramatiq assumes tasks are idempotent. This broker makes the same
 assumptions for recovering after a crash.
@@ -47,12 +48,15 @@ setup](https://dramatiq.io/guide.html). An [example
 script](https://gitlab.com/dalibo/dramatiq-pg/blob/master/example.py) is
 available, tested on CI.
 
+The CLI tool `dramatiq-pg` allows you to show stats on the queue and purge old
+messages. See `--help` for details.
+
 
 ## Roadmap
 
 - Result storage as JSONb.
 - Delayed task.
-- CLI tool for init/migration, stats and maintainance.
+
 
 Feel free to suggest feature through support channels.
 

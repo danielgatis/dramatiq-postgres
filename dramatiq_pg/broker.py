@@ -1,6 +1,7 @@
 import json
 import logging
 import select
+from random import randint
 from contextlib import contextmanager
 from textwrap import dedent
 
@@ -31,6 +32,17 @@ def transaction(pool):
                 yield curs
     finally:
         pool.putconn(conn)
+
+
+def purge(curs, max_age='30 days'):
+    # Delete old messages. Returns deleted messages.
+
+    curs.execute(dedent("""\
+    DELETE FROM dramatiq.queue
+    WHERE "state" IN ('done', 'rejected')
+      AND mtime <= (NOW() - interval %s);
+    """), (max_age,))
+    return curs.rowcount
 
 
 class PostgresBroker(Broker):
@@ -86,6 +98,7 @@ class PostgresConsumer(Consumer):
         self.queue_name = queue_name
 
     def __next__(self):
+        self.auto_purge()
         while True:
             # Start by processing already fetched notifies.
             while self.notifies:
@@ -117,6 +130,13 @@ class PostgresConsumer(Consumer):
             channel = quote_ident(self.ack_channel, curs)
             curs.execute(f"NOTIFY {channel}, %s;", (message.message_id,))
 
+    def auto_purge(self):
+        # Automatically purge messages every 100k messages.
+        if 0 == randint(0, 100_000):
+            with transaction(self.pool) as curs:
+                deleted = purge(curs)
+            logger.info("Purged %d messages.", deleted)
+
     def close(self):
         if self.listen_conn:
             self.pool.putconn(self.listen_conn)
@@ -140,8 +160,8 @@ class PostgresConsumer(Consumer):
             curs.execute(dedent("""\
             WITH updated AS (
               UPDATE dramatiq.queue
-                 SET "state" = 'done', message = %s
-               WHERE message_id = %s AND state <> 'done'
+                 SET "state" = 'rejected', message = %s
+               WHERE message_id = %s AND state <> 'rejected'
               RETURNING message
             )
             SELECT

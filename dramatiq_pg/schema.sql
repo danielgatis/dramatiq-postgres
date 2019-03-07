@@ -10,7 +10,7 @@ CREATE TYPE dramatiq."state" AS ENUM (
 );
 
 CREATE TABLE dramatiq.queue(
-  id SERIAL PRIMARY KEY,
+  id BIGSERIAL PRIMARY KEY,
   queue_name TEXT NOT NULL DEFAULT 'default',
   message_id uuid UNIQUE,
   "state" dramatiq."state",
@@ -19,3 +19,7 @@ CREATE TABLE dramatiq.queue(
   message JSONB,
   "result" JSONB
 );
+
+-- Index state and mtime together to speed up deletion. This can also speed up
+-- statistics when VACUUM ANALYZE is recent enough.
+CREATE INDEX ON dramatiq.queue("state", mtime);
