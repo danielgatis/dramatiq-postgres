@@ -52,6 +52,21 @@ The CLI tool `dramatiq-pg` allows you to show stats on the queue and purge old
 messages. See `--help` for details.
 
 
+## Deployment
+
+Postgres does not replicate notifications to standby instances. Thus the broker
+connection pool must point to the master instance. Actor can connect to hot
+standby for its work.
+
+If you use pgbouncer, you must configure session pooling method to keep notify.
+
+Each dramatiq process opens one persistent connection per queue and one
+connection to ack messages. Thus, to be save, you should provision pool size
+with `num_processes x num_queues x 2`. A best practice is to only add process as
+needed and reduce the number of queues.
+
+
+
 ## Roadmap
 
 - Result storage as JSONb.
