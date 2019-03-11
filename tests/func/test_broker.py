@@ -9,33 +9,8 @@ from example import (
 )
 
 
-PREFILL = 8
-
-
-def test_prefill_queue():
-    for i in range(PREFILL):
-        writer.send(message='prefill', index=i)
-
-
-@pytest.mark.timeout(4)
-def test_process_pending_messages(listener, pgconn, witness, worker):
-    # This test must be the first with worker fixture, which starts dramatiq
-    # worker process.
-
-    # Actually, there is a race condition between listener.__enter__ which
-    # start LISTEN-ing for ack and worker process to start consuming.
-    with listener:
-        listener.wait(PREFILL)
-
-    # Ensure the witness table has effectively been updated.
-    with pgconn() as curs:
-        curs.execute("SELECT count(*) FROM functest.witness;")
-        count, = curs.fetchone()
-    assert PREFILL == count
-
-
 @pytest.mark.timeout(8)
-def test_massive(listener, pgconn, witness):
+def test_massive(listener, pgconn, witness, worker):
     count = 64
 
     # Start listening for ack.
@@ -47,7 +22,7 @@ def test_massive(listener, pgconn, witness):
                 named=randint(1, 10),
             )
 
-        # Wait for 32 ack from workers.
+        # Wait for *count* ack from workers.
         listener.wait(count)
 
     # Ensure the witness table has effectively been updated.

@@ -70,6 +70,17 @@ def make_argument_parser():
         interval. Default is %(default)r.
         """)
     )
+
+    subparser = subparsers.add_parser('recover')
+    subparser.set_defaults(command=recover_command)
+    subparser.add_argument(
+        '--minage', dest='recover_minage', default='1 min',
+        help=dedent("""\
+        Max age of consumed message to requere. Format is Postgres
+        interval. Default is %(default)r.
+        """)
+    )
+
     subparser = subparsers.add_parser('stats')
     subparser.set_defaults(command=stats_command)
 
@@ -80,6 +91,18 @@ def purge_command(args):
     with transaction() as curs:
         deleted = purge(curs, args.purge_maxage)
     logger.info("Deleted %d messages.", deleted)
+
+
+def recover_command(args):
+    with transaction() as curs:
+        curs.execute(dedent("""\
+        UPDATE dramatiq.queue
+           SET state = 'queued'
+         WHERE state = 'consumed'
+           AND mtime < (NOW() AT TIME ZONE 'UTC') - interval %s;
+        """), (args.recover_minage,))
+        recovered = curs.rowcount
+    logger.info("Recovered %s messages.", recovered)
 
 
 def stats_command(args):

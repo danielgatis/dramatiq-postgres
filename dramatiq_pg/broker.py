@@ -169,26 +169,6 @@ class PostgresConsumer(Consumer):
             FROM updated;
             """), (payload, message.message_id, self.ack_channel))
 
-    def recover(self):
-        # Requeue old consumed message.
-        #
-        # In dramatiq, actor should be idempotent. In other words, it's safer
-        # to retry a task rather than losing a message. Thus, when recovering,
-        # we requeue message consumed for at least 3 seconds.
-        #
-        # To ensure full recovery, you should wait 3 seconds before restarting
-        # dramatiq worker process. A task consumed in the last 3s should have
-        # been consumed by another worker processus.
-        logger.debug("Recover consumed message from %s.", self.queue_name)
-        with self.listen_conn.cursor() as curs:
-            curs.execute(dedent("""\
-            UPDATE dramatiq.queue
-               SET state = 'queued'
-             WHERE state = 'consumed'
-               AND mtime < (NOW() AT TIME ZONE 'UTC') - interval '3s';
-            """), (self.queue_name,))
-            logger.debug("Recovered %s messages.", curs.rowcount)
-
     def replay_pending_notifies(self):
         logger.debug("Querying pending messages in %s.", self.queue_name)
         with self.listen_conn.cursor() as curs:
@@ -219,7 +199,6 @@ class PostgresConsumer(Consumer):
 
         if self.listen_conn is None:
             self.listen_conn = self.start_listening()
-            self.recover()
             # We may have received a notify between LISTEN and SELECT of
             # pending messages. That's not a problem because we are able to
             # skip spurious notifies.

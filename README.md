@@ -48,8 +48,8 @@ setup](https://dramatiq.io/guide.html). An [example
 script](https://gitlab.com/dalibo/dramatiq-pg/blob/master/example.py) is
 available, tested on CI.
 
-The CLI tool `dramatiq-pg` allows you to show stats on the queue and purge old
-messages. See `--help` for details.
+The CLI tool `dramatiq-pg` allows you to recover message, purge old messages and
+show stats on the queue. See `--help` for details.
 
 
 ## Roadmap
