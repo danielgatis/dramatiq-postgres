@@ -16,10 +16,10 @@ def test_massive(listener, pgconn, witness, worker):
     # Start listening for ack.
     with listener:
         # Then queue <count> random messages.
-        for _ in range(count):
+        for n in range(count):
             writer.send(
                 randint(1, 10),
-                named=randint(1, 10),
+                message="Message #%d" % (n,),
             )
 
         # Wait for *count* ack from workers.

@@ -83,7 +83,7 @@ class PostgresBroker(Broker):
         """), (q, message.message_id, Json(message.asdict())))
 
         with transaction(self.pool) as curs:
-            logger.debug("Upserting %s in %s.", message.message_id, q)
+            logger.debug("Upserting %s in queue %s.", message.message_id, q)
             curs.execute(*insert)
 
 
@@ -121,10 +121,9 @@ class PostgresConsumer(Consumer):
             message = Message(**payload)
             mid = message.message_id
             if self.consume_one(message):
-                logger.debug("Consumed message %s.", mid)
                 return MessageProxy(message)
             else:
-                logger.debug("Message %s already consumed.", mid)
+                logger.debug("Message %s already consumed. Skipping.", mid)
 
         # We have nothing to do, let's see if the queue needs some cleaning.
         self.auto_purge()
@@ -187,7 +186,6 @@ class PostgresConsumer(Consumer):
             """), (payload, message.message_id, self.ack_channel))
 
     def fetch_pending_notifies(self):
-        logger.debug("Querying pending messages in %s.", self.queue_name)
         with self.listen_conn.cursor() as curs:
             curs.execute(dedent("""\
             SELECT message::text
@@ -214,5 +212,11 @@ class PostgresConsumer(Consumer):
     def poll_for_notify(self):
         rlist, *_ = select.select([self.listen_conn], [], [], self.timeout)
         self.listen_conn.poll()
-        self.notifies += self.listen_conn.notifies
-        self.listen_conn.notifies[:] = []
+        if self.listen_conn.notifies:
+            self.notifies += self.listen_conn.notifies
+            logger.debug(
+                "Received %d Postgres notifies for queue %s.",
+                len(self.listen_conn.notifies),
+                self.queue_name,
+            )
+            self.listen_conn.notifies[:] = []
