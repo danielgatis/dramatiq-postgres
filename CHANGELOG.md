@@ -8,6 +8,7 @@
   queue with long running task.
 - Added documentation on deployment constaints and limitations.
 - Added manual requeue from CLI tool.
+- Added URL parameter to PostgresBroker constructor.
 - Reuse listening connexion to purge message table. This reduce slighly
   connexion usage.
 

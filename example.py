@@ -40,6 +40,9 @@ from psycopg2.extras import Json
 logger = logging.getLogger(__name__)
 # Empty connstring let's you configure psycogp2 using PG* env vars.
 pool = psycopg2.pool.ThreadedConnectionPool(0, 16, "")
+# PostgresBroker accepts either pool= or url=. URL is a libpq connstring.
+# PostgresBroker creates a ThreadedConnectionPool from URL, swallowing minconn
+# and maxconn query argument.
 dramatiq.set_broker(dramatiq_pg.PostgresBroker(pool=pool))
 
 

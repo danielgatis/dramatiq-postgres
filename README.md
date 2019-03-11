@@ -39,8 +39,7 @@ assumptions for recovering after a crash.
   import dramatiq_pg
   import psycopg2.pool
 
-  pool = psycopg2.pool.ThreadedConnectionPool(0, 4, conninfo)
-  dramatiq.set_broker(dramatiq_pg.PostgresBroker(pool=pool))
+  dramatiq.set_broker(dramatiq_pg.PostgresBroker(url="postgresql:///?minconn=0&maxconn=10"))
   ```
 
 Now declare/import actors and manage worker just like any [dramatiq

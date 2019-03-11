@@ -4,6 +4,11 @@ import select
 from random import randint
 from contextlib import contextmanager
 from textwrap import dedent
+from urllib.parse import (
+    parse_qsl,
+    urlencode,
+    urlparse,
+)
 
 from dramatiq.broker import (
     Broker,
@@ -17,6 +22,7 @@ from psycopg2.extensions import (
     quote_ident,
 )
 from psycopg2.extras import Json
+from psycopg2.pool import ThreadedConnectionPool
 
 
 logger = logging.getLogger(__name__)
@@ -45,11 +51,30 @@ def purge(curs, max_age='30 days'):
     return curs.rowcount
 
 
+def make_pool(url):
+    parts = urlparse(url)
+    qs = dict(parse_qsl(parts.query))
+    minconn = int(qs.pop('minconn', '0'))
+    maxconn = int(qs.pop('maxconn', '16'))
+    parts = parts._replace(query=urlencode(qs))
+    connstring = parts.geturl()
+    if ":/?" in connstring or connstring.endswith(':/'):
+        # geturl replaces :/// with :/. libpq does not accept that.
+        connstring = connstring.replace(':/', ':///')
+    return ThreadedConnectionPool(minconn, maxconn, connstring)
+
+
 class PostgresBroker(Broker):
-    def __init__(self, *, pool, **kw):
+    def __init__(self, *, pool=None, url="", **kw):
         super(PostgresBroker, self).__init__(**kw)
-        # Receive a pool object to have an I/O less __init__.
-        self.pool = pool
+        if pool and url:
+            raise ValueError("You can't set both pool and URL!")
+
+        if url:
+            self.pool = make_pool(url)
+        else:
+            # Receive a pool object to have an I/O less __init__.
+            self.pool = pool
 
     def consume(self, queue_name, prefetch=1, timeout=30000):
         return PostgresConsumer(
