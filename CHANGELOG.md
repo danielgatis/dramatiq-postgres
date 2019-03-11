@@ -2,6 +2,8 @@
 
 ## Unreleased changes
 
+- Fixed blocking consumer thread. `select` syscall is now called every seconds
+  by default.
 - Removed automatic recovery on startup. This break multi-worker process on same
   queue with long running task.
 - Added documentation on deployment constaints and limitations.

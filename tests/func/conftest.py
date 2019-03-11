@@ -1,7 +1,6 @@
 from contextlib import contextmanager, closing
 from subprocess import Popen
 from select import select
-from time import sleep
 from warnings import filterwarnings
 
 import pytest
