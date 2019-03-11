@@ -1,6 +1,7 @@
 import argparse
 import logging
 import pdb
+from contextlib import closing, contextmanager
 from pkg_resources import get_distribution
 from textwrap import dedent
 
@@ -76,28 +77,31 @@ def make_argument_parser():
 
 
 def purge_command(args):
-    conn = connect("")
-    with conn:
-        with conn.cursor() as curs:
-            deleted = purge(curs, args.purge_maxage)
-    conn.close()
+    with transaction() as curs:
+        deleted = purge(curs, args.purge_maxage)
     logger.info("Deleted %d messages.", deleted)
 
 
 def stats_command(args):
-    conn = connect("")
-    with conn:
-        with conn.cursor() as curs:
-            curs.execute(dedent("""\
-            SELECT "state", count(1)
-              FROM dramatiq.queue
-            GROUP BY "state";
-            """))
-            stats = dict(curs.fetchall())
-    conn.close()
+    with transaction() as curs:
+        curs.execute(dedent("""\
+        SELECT "state", count(1)
+          FROM dramatiq.queue
+        GROUP BY "state";
+        """))
+        stats = dict(curs.fetchall())
 
     for state in 'queued', 'consumed', 'done', 'rejected':
         print(f'{state}: {stats.get(state, 0)}')
+
+
+@contextmanager
+def transaction(connstring=""):
+    # Manager for connecting to psycopg2 for a single transaction.
+    with closing(connect(connstring)) as conn:
+        with conn:
+            with conn.cursor() as curs:
+                yield curs
 
 
 if '__main__' == __name__:
