@@ -83,12 +83,12 @@ class PostgresBroker(Broker):
         """), (q, message.message_id, Json(message.asdict())))
 
         with transaction(self.pool) as curs:
-            logger.debug("Upserting %s in %s.", message.message_id, q)
+            logger.debug("Upserting %s in queue %s.", message.message_id, q)
             curs.execute(*insert)
 
 
 class PostgresConsumer(Consumer):
-    def __init__(self, *, pool, queue_name, **kw):
+    def __init__(self, *, pool, queue_name, timeout, **kw):
         prefix = "dramatiq." + queue_name
         self.ack_channel = prefix + ".ack"
         self.enqueue_channel = prefix + ".enqueue"
@@ -96,24 +96,37 @@ class PostgresConsumer(Consumer):
         self.notifies = []
         self.pool = pool
         self.queue_name = queue_name
+        self.timeout = timeout // 1000
 
     def __next__(self):
-        self.auto_purge()
-        while True:
-            # Start by processing already fetched notifies.
-            while self.notifies:
-                notify = self.notifies.pop(0)
-                payload = json.loads(notify.payload)
-                message = Message(**payload)
-                mid = message.message_id
-                if self.consume_one(message):
-                    logger.debug("Consumed message %s.", mid)
-                    return MessageProxy(message)
-                else:
-                    logger.debug("Message %s already consumed.", mid)
+        # First, open connexion and fetch missed notifies from table.
+        if self.listen_conn is None:
+            self.listen_conn = self.start_listening()
+            # We may have received a notify between LISTEN and SELECT of
+            # pending messages. That's not a problem because we are able to
+            # skip spurious notifies.
+            self.notifies = self.fetch_pending_notifies()
+            logger.debug(
+                "Found %s pending messages in queue %s.",
+                len(self.notifies), self.queue_name)
 
-            # Notify list is empty, listen for more.
-            self.wait_for_notify()
+        if not self.notifies:
+            # Then, fetch notifies from Pg connexion.
+            self.poll_for_notify()
+
+        # If we have some notifies, loop to find one todo.
+        while self.notifies:
+            notify = self.notifies.pop(0)
+            payload = json.loads(notify.payload)
+            message = Message(**payload)
+            mid = message.message_id
+            if self.consume_one(message):
+                return MessageProxy(message)
+            else:
+                logger.debug("Message %s already consumed. Skipping.", mid)
+
+        # We have nothing to do, let's see if the queue needs some cleaning.
+        self.auto_purge()
 
     def ack(self, message):
         with transaction(self.pool) as curs:
@@ -131,11 +144,14 @@ class PostgresConsumer(Consumer):
             curs.execute(f"NOTIFY {channel}, %s;", (message.message_id,))
 
     def auto_purge(self):
-        # Automatically purge messages every 100k messages.
-        if 0 == randint(0, 100_000):
-            with transaction(self.pool) as curs:
-                deleted = purge(curs)
-            logger.info("Purged %d messages.", deleted)
+        # Automatically purge messages every 100k iteration. Dramatiq defaults
+        # to 1s. This mean about 1 purge for 28h idle.
+        if randint(0, 100_000):
+            return
+        logger.debug("Randomly triggering garbage collector.")
+        with self.listen_conn.cursor() as curs:
+            deleted = purge(curs)
+        logger.info("Purged %d messages in all queues.", deleted)
 
     def close(self):
         if self.listen_conn:
@@ -169,8 +185,7 @@ class PostgresConsumer(Consumer):
             FROM updated;
             """), (payload, message.message_id, self.ack_channel))
 
-    def replay_pending_notifies(self):
-        logger.debug("Querying pending messages in %s.", self.queue_name)
+    def fetch_pending_notifies(self):
         with self.listen_conn.cursor() as curs:
             curs.execute(dedent("""\
             SELECT message::text
@@ -194,23 +209,14 @@ class PostgresConsumer(Consumer):
             curs.execute(f"LISTEN {channel};")
         return conn
 
-    def wait_for_notify(self):
-        # Blocks until a notify is intercepted.
-
-        if self.listen_conn is None:
-            self.listen_conn = self.start_listening()
-            # We may have received a notify between LISTEN and SELECT of
-            # pending messages. That's not a problem because we are able to
-            # skip spurious notifies.
-            self.notifies = self.replay_pending_notifies()
-            logger.debug(
-                "Found %s pending messages in %s.",
-                len(self.notifies), self.queue_name)
-
-        while not self.notifies:
-            rlist, *_ = select.select([self.listen_conn], [], [], 300)
-            if not rlist:
-                continue  # Loop on timeout
-            self.listen_conn.poll()
+    def poll_for_notify(self):
+        rlist, *_ = select.select([self.listen_conn], [], [], self.timeout)
+        self.listen_conn.poll()
+        if self.listen_conn.notifies:
             self.notifies += self.listen_conn.notifies
+            logger.debug(
+                "Received %d Postgres notifies for queue %s.",
+                len(self.listen_conn.notifies),
+                self.queue_name,
+            )
             self.listen_conn.notifies[:] = []

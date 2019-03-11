@@ -1,7 +1,6 @@
 from contextlib import contextmanager, closing
 from subprocess import Popen
 from select import select
-from time import sleep
 from warnings import filterwarnings
 
 import pytest
@@ -77,19 +76,23 @@ def listener():
 @pytest.fixture(scope='session')
 def worker():
     logfile = "my-workers.log"
-    open(logfile, "w").close()
-    proc = Popen([
-        "dramatiq",
-        "--verbose", "--log-file", logfile,
-        "--processes=1", "--threads=8",
-        "example",
-    ])
+    ready = False
+    with open(logfile, "w+") as fo:
+        proc = Popen([
+            "dramatiq",
+            "--verbose", "--log-file", logfile,
+            "--processes=1", "--threads=8",
+            "example",
+        ])
+
+        while not ready:
+            for line in fo:
+                ready = "Worker process is ready" in line
+                if ready:
+                    break
+
     try:
         yield proc
     finally:
         proc.terminate()
-        sleep(.25)
-        proc.terminate()
-        sleep(.25)
-        proc.kill()
         proc.communicate()
