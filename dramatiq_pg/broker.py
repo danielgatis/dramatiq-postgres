@@ -15,6 +15,7 @@ from dramatiq.broker import (
     Consumer,
     MessageProxy,
 )
+from dramatiq.common import current_millis, dq_name
 from dramatiq.message import Message
 from psycopg2.extensions import (
     ISOLATION_LEVEL_AUTOCOMMIT,
@@ -93,6 +94,10 @@ class PostgresBroker(Broker):
             self.emit_after("declare_queue", queue_name)
 
     def enqueue(self, message, *, delay=None):
+        if delay:
+            message = message.copy(queue_name=dq_name(message.queue_name))
+            message.options['eta'] = current_millis() + delay
+
         q = message.queue_name
         insert = (dedent("""\
         WITH enqueued AS (
@@ -114,9 +119,6 @@ class PostgresBroker(Broker):
 
 class PostgresConsumer(Consumer):
     def __init__(self, *, pool, queue_name, timeout, **kw):
-        prefix = "dramatiq." + queue_name
-        self.ack_channel = prefix + ".ack"
-        self.enqueue_channel = prefix + ".enqueue"
         self.listen_conn = None
         self.notifies = []
         self.pool = pool
@@ -155,18 +157,24 @@ class PostgresConsumer(Consumer):
 
     def ack(self, message):
         with transaction(self.pool) as curs:
+            channel = f"dramatiq.{message.queue_name}.ack"
+            payload = Json(message.asdict())
+            logger.debug(
+                "Notifying %s for ACK %s.", channel, message.message_id)
             # dramatiq always ack a message, even if it has been requeued by
             # the Retries middleware. Thus, only update message in state
             # `consumed`.
             curs.execute(dedent("""\
-            UPDATE dramatiq.queue
-            SET "state" = 'done'
-            WHERE message_id = %s AND "state" = 'consumed'
-            """), (message.message_id,))
-            # Always notify ack, even if message has been requeued. ack just
-            # mean message leaved state consumed.
-            channel = quote_ident(self.ack_channel, curs)
-            curs.execute(f"NOTIFY {channel}, %s;", (message.message_id,))
+            WITH updated AS (
+              UPDATE dramatiq.queue
+                 SET "state" = 'done', message = %s
+               WHERE message_id = %s AND state = 'consumed'
+              RETURNING message
+            )
+            SELECT
+              pg_notify(%s, message::text)
+            FROM updated;
+            """), (payload, message.message_id, channel))
 
     def auto_purge(self):
         # Automatically purge messages every 100k iteration. Dramatiq defaults
@@ -197,6 +205,10 @@ class PostgresConsumer(Consumer):
 
     def nack(self, message):
         with transaction(self.pool) as curs:
+            # Use the same channel as ack. Actually means done.
+            channel = f"dramatiq.{message.queue_name}.ack"
+            logger.debug(
+                "Notifying %s for NACK %s.", channel, message.message_id)
             payload = Json(message.asdict())
             curs.execute(dedent("""\
             WITH updated AS (
@@ -208,19 +220,32 @@ class PostgresConsumer(Consumer):
             SELECT
               pg_notify(%s, message::text)
             FROM updated;
-            """), (payload, message.message_id, self.ack_channel))
+            """), (payload, message.message_id, channel))
 
     def fetch_pending_notifies(self):
         with self.listen_conn.cursor() as curs:
             curs.execute(dedent("""\
             SELECT message::text
               FROM dramatiq.queue
-             WHERE state = 'queued' AND queue_name = %s;
-            """), (self.queue_name,))
+             WHERE state = 'queued' AND queue_name IN %s;
+            """), ((self.queue_name, dq_name(self.queue_name)),))
             return [
-                Notify(pid=0, channel=self.ack_channel, payload=r[0])
+                Notify(pid=0, channel=None, payload=r[0])
                 for r in curs
             ]
+
+    def requeue(self, messages):
+        messages = list(messages)
+        if not len(messages):
+            return
+
+        logger.debug("Batch update of messages for requeue.")
+        with self.listen_conn.cursor() as curs:
+            curs.execute(dedent("""\
+            UPDATE dramatiq.queue
+               SET state = 'queued'
+            WHERE message_id IN %s;
+            """), (tuple(m.message_id for m in messages),))
 
     def start_listening(self):
         # Opens listening connection with proper configuration.
@@ -228,10 +253,13 @@ class PostgresConsumer(Consumer):
         conn = self.pool.getconn()
         # This is for NOTIFY consistency, according to psycopg2 doc.
         conn.set_isolation_level(ISOLATION_LEVEL_AUTOCOMMIT)
-        channel = quote_ident(self.enqueue_channel, conn)
+        channel = quote_ident(f"dramatiq.{self.queue_name}.enqueue", conn)
+        dq = dq_name(self.queue_name)
+        dchannel = quote_ident(f"dramatiq.{dq}.enqueue", conn)
         with conn.cursor() as curs:
-            logger.debug("Listening on channel %s.", channel)
-            curs.execute(f"LISTEN {channel};")
+            logger.debug(
+                "Listening on channels %s, %s.", channel, dchannel)
+            curs.execute(f"LISTEN {channel}; LISTEN {dchannel};")
         return conn
 
     def poll_for_notify(self):

@@ -93,6 +93,8 @@ def main():
         sleeper.send(2)
         writer.send('toto', named='titi')
         failing.send(always=False)
+        d = random.randint(4, 10) * 1000
+        writer.send_with_options(args=('delayed',), delay=d)
     rejecting.send()
 
 

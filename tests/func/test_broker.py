@@ -1,3 +1,5 @@
+import signal
+from datetime import datetime
 from random import randint
 
 import pytest
@@ -59,3 +61,30 @@ def test_nack(listener, pgconn, witness):
         curs.execute("SELECT payload FROM functest.witness LIMIT 1;")
         payload, = curs.fetchone()
     assert 'Rejecting from func test.' == payload['kwargs']['message']
+
+
+@pytest.mark.timeout(8)
+def test_delay(listener, pgconn, worker):
+    with listener:
+        queue_time = datetime.utcnow()
+        writer.send("no delay")
+        writer.send_with_options(args=("delayed",), delay=1000)
+        listener.wait()
+        immediate_delta = datetime.utcnow() - queue_time
+        listener.wait()
+        delayed_delta = datetime.utcnow() - queue_time
+
+    assert immediate_delta.total_seconds() < 1
+    assert delayed_delta.total_seconds() > 1
+
+    with listener:
+        queue_time = datetime.utcnow()
+        # Dramatiq worker loops each second. Thus, delaying 2s ensure the
+        # message wont be processed before SIGHUP.
+        writer.send_with_options(args=("requeued",), delay=2000)
+        # SIGHUP triggers requeue, restart and recover.
+        worker.send_signal(signal.SIGHUP)
+        listener.wait()
+        delayed_delta = datetime.utcnow() - queue_time
+
+    assert delayed_delta.total_seconds() > 1

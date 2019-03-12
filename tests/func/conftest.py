@@ -27,13 +27,14 @@ class Listener(object):
         self.conn = self.cursor = None
 
     def wait(self, count=1):
+        self.conn.notifies[:] = []
         self.conn.poll()
         while len(self.conn.notifies) < count:
             rlist, *_ = select([self.conn], [], [], 300)
             if not rlist:
                 continue  # Loop on timeout
             self.conn.poll()
-        return self.conn.notifies
+        return self.conn.notifies.copy()
 
 
 @contextmanager

@@ -3,5 +3,8 @@ version: "2"
 services:
   postgres:
     image: postgres:11-alpine
+    volumes:
+    - ./dramatiq_pg/schema.sql:/docker-entrypoint-initdb.d/000-queue.sql
+    - ./tests/func/schema.sql:/docker-entrypoint-initdb.d/001-tests.sql
     labels:
       com.dnsdock.alias: postgres.dramatiq.docker

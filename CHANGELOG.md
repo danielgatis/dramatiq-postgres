@@ -6,6 +6,7 @@
   by default.
 - Removed automatic recovery on startup. This break multi-worker process on same
   queue with long running task.
+- Added delayed task support.
 - Added documentation on deployment constaints and limitations.
 - Added manual requeue from CLI tool.
 - Added URL parameter to PostgresBroker constructor.
