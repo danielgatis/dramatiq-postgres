@@ -5,7 +5,8 @@
 - Fixed blocking consumer thread. `select` syscall is now called every seconds
   by default.
 - Removed automatic recovery on startup. This break multi-worker process on same
-  queue with long running task.
+  queue with long running task. You need to manually requeue messages after a
+  crash.
 - Added delayed task support.
 - Added documentation on deployment constaints and limitations.
 - Added manual requeue from CLI tool.
