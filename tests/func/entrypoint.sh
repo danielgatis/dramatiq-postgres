@@ -33,6 +33,7 @@ mkdir -p $XDG_CACHE_HOME
 pip --disable-pip-version-check install --user poetry
 poetry install
 poetry run flake8 dramatiq_pg/ tests/
+poetry run pytest -x tests/unit/
 poetry run tests/pypsql < dramatiq_pg/schema.sql
 poetry run tests/pypsql < tests/func/schema.sql
 poetry run pytest -x tests/func/
