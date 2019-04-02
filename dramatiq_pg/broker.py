@@ -48,10 +48,10 @@ class PostgresBroker(Broker):
         else:
             # Receive a pool object to have an I/O less __init__.
             self.pool = pool
+        self.backend = None
         if results:
-            self.add_middleware(
-                Results(backend=PostgresBackend(pool=self.pool))
-            )
+            self.backend = PostgresBackend(pool=self.pool)
+            self.add_middleware(Results(backend=self.backend))
 
     def consume(self, queue_name, prefetch=1, timeout=30000):
         return PostgresConsumer(

@@ -1,4 +1,7 @@
+from uuid import uuid4
+
 import pytest
+from dramatiq import get_broker, Message
 from dramatiq.results import ResultMissing, ResultTimeout
 
 from example import saver
@@ -29,3 +32,20 @@ def test_timeout(worker):
 
     result = message.get_result(block=True)
     assert 'message' in result
+
+
+def test_results_alone():
+    broker = get_broker()
+    backend = broker.backend
+    assert backend is not None
+
+    message = Message(
+        queue_name='q',
+        actor_name='actor', args=(), kwargs={}, options={},
+        message_id=uuid4(),
+    )
+
+    input_ = {'msg': 'Test results alone'}
+    backend.store_result(message, input_, ttl=1000)
+    output = backend.get_result(message, block=True, timeout=1000)
+    assert input_ == output

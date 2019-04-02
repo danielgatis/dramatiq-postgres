@@ -33,25 +33,26 @@ class PostgresBackend(ResultBackend):
         return str(message.message_id)
 
     def get_result(self, message, *, block=False, timeout=None):
+        key = self.build_message_key(message)
+
         # Ensure a timeout is set.
         timeout = timeout or 300_000
-        channel = f'dramatiq.{message.message_id}.results'
+        channel = f'dramatiq.{key}.results'
         with transaction(self.pool, listen=channel) as curs:
             # First, search result in table.
             curs.execute(dedent("""\
             SELECT result
               FROM dramatiq.queue
-             WHERE message_id = %s;
-            """), (message.message_id,))
-            result, = curs.fetchone()
-
-            if result is not None:
+             WHERE message_id = %s AND result IS NOT NULL;
+            """), (key,))
+            if curs.rowcount:
+                result, = curs.fetchone()
                 return result
             elif not block:
                 raise ResultMissing(message)
 
             # From here, we are in blocking mode.
-            logger.debug("Waiting for result of %s.", message.message_id)
+            logger.debug("Waiting for result of %s.", key)
             notifies = wait_for_notifies(curs.connection, timeout=timeout)
 
         if not notifies:
@@ -65,16 +66,19 @@ class PostgresBackend(ResultBackend):
             logger.debug("Storing result for %s.", key)
             curs.execute(dedent("""\
             WITH stored AS (
-                UPDATE dramatiq.queue
-                   SET mtime = (NOW() AT TIME ZONE 'UTC'),
-                       result = %s,
-                       result_ttl = (NOW() AT TIME ZONE 'UTC') + interval %s
-                 WHERE message_id = %s
+              INSERT INTO dramatiq.queue
+                          (queue_name, message_id, "state", result, result_ttl)
+                   VALUES ('__RQ__', %s, 'done',
+                           %s, (NOW() AT TIME ZONE 'UTC') + interval %s)
+              ON CONFLICT (message_id)
+                DO UPDATE SET mtime = (NOW() AT TIME ZONE 'UTC'),
+                              result = EXCLUDED.result,
+                              result_ttl = EXCLUDED.result_ttl
                 RETURNING queue_name, message_id, result
             )
             SELECT
-             pg_notify('dramatiq.' || message_id || '.results', result::text)
+              pg_notify('dramatiq.' || message_id || '.results', result::text)
             FROM stored;
-            """), (Json(result), f"{ttl} ms", key))
+            """), (key, Json(result), f"{ttl} ms",))
             if 0 == curs.rowcount:
                 raise Exception(f"Can't store result of message {key}.")
