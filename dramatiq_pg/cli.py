@@ -61,6 +61,9 @@ def make_argument_parser():
 
     subparsers = parser.add_subparsers()
 
+    subparser = subparsers.add_parser('flush')
+    subparser.set_defaults(command=flush_command)
+
     subparser = subparsers.add_parser('purge')
     subparser.set_defaults(command=purge_command)
     subparser.add_argument(
@@ -85,6 +88,16 @@ def make_argument_parser():
     subparser.set_defaults(command=stats_command)
 
     return parser
+
+
+def flush_command(args):
+    with transaction() as curs:
+        curs.execute(dedent("""\
+        DELETE FROM dramatiq.queue
+         WHERE "state" IN ('queued', 'consumed');
+        """))
+        flushed = curs.rowcount
+    logger.info("Flushed %d messages.", flushed)
 
 
 def purge_command(args):

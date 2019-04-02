@@ -26,3 +26,8 @@ def test_recover(pgconn):
 
     out = dramatiq_pg('recover', '--minage', '10 microsecond')
     assert re.search(br'(?:\d{2,}|[^0]) messages', out.stderr)
+
+
+def test_flush():
+    out = dramatiq_pg('flush', _err_to_out=True)
+    assert 'Flushed' in out
