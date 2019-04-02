@@ -5,6 +5,7 @@
 This release requires an update of the schema.
 
 - Stores result in Database. This is enabled by default.
+- Flush all queues from CLI.
 
 
 ## [0.4.0] (2019-03-13)
