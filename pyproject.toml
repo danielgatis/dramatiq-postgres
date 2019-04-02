@@ -4,6 +4,7 @@ version = "0.4.1"
 description = "Postgres Broker for Dramatiq Task Queue"
 authors = ["Étienne BERSAC"]
 homepage = "https://gitlab.com/dalibo/dramatiq-pg"
+documentation = "https://gitlab.com/dalibo/dramatiq-pg/blob/master/docs/index.rst"
 license = "PostgreSQL"
 readme = "README.md"
 keywords = ["postgres", "task queue", "dramatiq"]

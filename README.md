@@ -10,14 +10,14 @@ broker.
 
 - Super simple deployment.
 - Uses plain psycopg2. No ORM.
-- Stores message payload as native JSONb.
+- Stores message payload and results as native JSONb.
 - Stores all messages in a single table, in a dedicated schema.
 - Uses LISTEN/NOTIFY to keep worker sync. No polling.
-- Replay pending messages on worker startup.
-- Requeues failed tasks.
+- Requeue of failed tasks.
 - Delayed task.
 - Reliable thanks to Postgres MVCC.
 - Self-healing. Old messages are purge from time to time.
+- Utility CLI for maintainance : flush, purge, stats, etc.
 
 Note that dramatiq assumes tasks are idempotent. This broker makes the same
 assumptions for recovering after a crash.
@@ -40,7 +40,7 @@ assumptions for recovering after a crash.
   import psycopg2.pool
   from dramatiq_pg import PostgresBroker
 
-  dramatiq.set_broker(PostgresBroker(url="postgresql:///?minconn=0&maxconn=10"))
+  dramatiq.set_broker(PostgresBroker(i))
 
   @dramatiq.actor
   def myactor():
@@ -54,35 +54,6 @@ available, tested on CI.
 
 The CLI tool `dramatiq-pg` allows you to requeue messages, purge old messages
 and show stats on the queue. See `--help` for details.
-
-
-## Result storage
-
-Dramatiq-pg implements a [Result
-backend](https://dramatiq.io/cookbook.html#results) and **enables automatically
-Results middleware**. This way, the PostgresBackend reuse the same connection
-pool. Note that only actors defined with `store_results=True` will triggers
-result storage. You can disable the `Results` middleware by passing
-`results=False` to broker constructor.
-
-``` python
-broker = PostgresBroker(url=conninfo, results=False)
-```
-
-
-## Deployment
-
-Postgres does not replicate notifications to standby instances. Thus the broker
-connection pool must point to the master instance. Actor can connect to hot
-standby for its work.
-
-If you use pgbouncer, you must configure session pooling method to keep notify.
-
-Each dramatiq process opens one persistent connection per queue and one
-connection to ack messages. Thus, to be save, you should provision pool size
-with `num_processes x num_queues x 2`. When you use `message.get_result()` a
-connection is reserved in the pool. A best practice is to only add process as
-needed and reduce the number of queues.
 
 
 ## Support
