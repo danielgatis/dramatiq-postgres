@@ -1,3 +1,10 @@
+#
+#       R E S U L T S
+#
+# Implements a result backend using Postgres. See
+# https://dramatiq.io/cookbook.html#results.
+#
+
 import json
 import logging
 from textwrap import dedent
@@ -22,6 +29,7 @@ class PostgresBackend(ResultBackend):
             self.pool = pool
 
     def build_message_key(self, message):
+        # Just use message_id, it's UNIQUE in table.
         return str(message.message_id)
 
     def get_result(self, message, *, block=False, timeout=None):
@@ -29,6 +37,7 @@ class PostgresBackend(ResultBackend):
         timeout = timeout or 300_000
         channel = f'dramatiq.{message.message_id}.results'
         with transaction(self.pool, listen=channel) as curs:
+            # First, search result in table.
             curs.execute(dedent("""\
             SELECT result
               FROM dramatiq.queue
@@ -41,12 +50,14 @@ class PostgresBackend(ResultBackend):
             elif not block:
                 raise ResultMissing(message)
 
+            # From here, we are in blocking mode.
             logger.debug("Waiting for result of %s.", message.message_id)
             notifies = wait_for_notifies(curs.connection, timeout=timeout)
 
         if not notifies:
             raise ResultTimeout(message)
         notify, = notifies
+        # Don't query database, use NOTIFY payload.
         return json.loads(notify.payload)
 
     def _store(self, key, result, ttl):
