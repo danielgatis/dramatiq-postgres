@@ -17,7 +17,9 @@ CREATE TABLE dramatiq.queue(
   mtime TIMESTAMP WITH TIME ZONE DEFAULT (NOW() AT TIME ZONE 'UTC'),
   -- message as encoded by dramatiq.
   message JSONB,
-  "result" JSONB
+  result_key TEXT UNIQUE,
+  "result" JSONB,
+  result_ttl  TIMESTAMP WITH TIME ZONE
 );
 
 -- Index state and mtime together to speed up deletion. This can also speed up

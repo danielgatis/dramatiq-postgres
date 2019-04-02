@@ -2,8 +2,8 @@
 
 
 def test_make_pool(mocker):
-    tp = mocker.patch('dramatiq_pg.broker.ThreadedConnectionPool')
-    from dramatiq_pg.broker import make_pool
+    tp = mocker.patch('dramatiq_pg.utils.ThreadedConnectionPool')
+    from dramatiq_pg.utils import make_pool
 
     make_pool("")
     tp.assert_called_with(0, 16, "")

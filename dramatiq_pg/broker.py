@@ -2,13 +2,7 @@ import json
 import logging
 import select
 from random import randint
-from contextlib import contextmanager
 from textwrap import dedent
-from urllib.parse import (
-    parse_qsl,
-    urlencode,
-    urlparse,
-)
 
 from dramatiq.broker import (
     Broker,
@@ -17,28 +11,19 @@ from dramatiq.broker import (
 )
 from dramatiq.common import current_millis, dq_name
 from dramatiq.message import Message
+from dramatiq.results import Results
 from psycopg2.extensions import (
     ISOLATION_LEVEL_AUTOCOMMIT,
     Notify,
     quote_ident,
 )
 from psycopg2.extras import Json
-from psycopg2.pool import ThreadedConnectionPool
+
+from .utils import make_pool, transaction
+from .results import PostgresBackend
 
 
 logger = logging.getLogger(__name__)
-
-
-@contextmanager
-def transaction(pool):
-    # Manage the connection, transaction and cursor from a connection pool.
-    conn = pool.getconn()
-    try:
-        with conn:  # Wraps in a transaction.
-            with conn.cursor() as curs:
-                yield curs
-    finally:
-        pool.putconn(conn)
 
 
 def purge(curs, max_age='30 days'):
@@ -46,27 +31,14 @@ def purge(curs, max_age='30 days'):
 
     curs.execute(dedent("""\
     DELETE FROM dramatiq.queue
-    WHERE "state" IN ('done', 'rejected')
-      AND mtime <= (NOW() - interval %s);
+     WHERE "state" IN ('done', 'rejected')
+       AND mtime <= (NOW() - interval %s);
     """), (max_age,))
     return curs.rowcount
 
 
-def make_pool(url):
-    parts = urlparse(url)
-    qs = dict(parse_qsl(parts.query))
-    minconn = int(qs.pop('minconn', '0'))
-    maxconn = int(qs.pop('maxconn', '16'))
-    parts = parts._replace(query=urlencode(qs))
-    connstring = parts.geturl()
-    if ":/?" in connstring or connstring.endswith(':/'):
-        # geturl replaces :/// with :/. libpq does not accept that.
-        connstring = connstring.replace(':/', ':///')
-    return ThreadedConnectionPool(minconn, maxconn, connstring)
-
-
 class PostgresBroker(Broker):
-    def __init__(self, *, pool=None, url="", **kw):
+    def __init__(self, *, pool=None, url="", results=True, **kw):
         super(PostgresBroker, self).__init__(**kw)
         if pool and url:
             raise ValueError("You can't set both pool and URL!")
@@ -76,6 +48,10 @@ class PostgresBroker(Broker):
         else:
             # Receive a pool object to have an I/O less __init__.
             self.pool = pool
+        if results:
+            self.add_middleware(
+                Results(backend=PostgresBackend(pool=self.pool))
+            )
 
     def consume(self, queue_name, prefetch=1, timeout=30000):
         return PostgresConsumer(
@@ -115,6 +91,7 @@ class PostgresBroker(Broker):
         with transaction(self.pool) as curs:
             logger.debug("Upserting %s in queue %s.", message.message_id, q)
             curs.execute(*insert)
+        return message
 
 
 class PostgresConsumer(Consumer):

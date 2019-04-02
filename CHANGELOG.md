@@ -1,5 +1,12 @@
 # Dramatiq-pg Changelog
 
+## Unreleased
+
+This release requires an update of the schema.
+
+- Stores result in Database. This is enabled by default.
+
+
 ## [0.4.0] (2019-03-13)
 
 - Fixed blocking consumer thread. `select` syscall is now called every seconds

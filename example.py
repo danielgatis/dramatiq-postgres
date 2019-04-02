@@ -31,7 +31,7 @@ from warnings import filterwarnings
 
 filterwarnings("ignore", message="The psycopg2 wheel package will be renamed")  # noqa
 
-import dramatiq
+import dramatiq.results
 import dramatiq_pg
 import psycopg2.pool
 from psycopg2.extras import Json
@@ -48,6 +48,13 @@ dramatiq.set_broker(dramatiq_pg.PostgresBroker(pool=pool))
 
 seed = int(os.environ.get('SEED', int(time.time())))
 random.seed(seed)
+
+
+@dramatiq.actor(store_results=True)
+def saver(*, wait=0, **data):
+    time.sleep(wait)
+    logger.debug("Returning %.60s.", data)
+    return data
 
 
 @dramatiq.actor
@@ -89,13 +96,16 @@ def rejecting(message="Rejecting"):
 
 
 def main():
+    message = saver.send(wait=random.randint(0, 10), message='Saved.')
     for _ in range(10):
         sleeper.send(2)
         writer.send('toto', named='titi')
         failing.send(always=False)
         d = random.randint(4, 10) * 1000
         writer.send_with_options(args=('delayed',), delay=d)
+
     rejecting.send()
+    message.get_result(block=True)
 
 
 if '__main__' == __name__:

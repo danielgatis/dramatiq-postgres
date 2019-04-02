@@ -56,6 +56,20 @@ The CLI tool `dramatiq-pg` allows you to requeue messages, purge old messages
 and show stats on the queue. See `--help` for details.
 
 
+## Result storage
+
+Dramatiq-pg implements a [Result
+backend](https://dramatiq.io/cookbook.html#results) and **enables automatically
+Results middleware**. This way, the PostgresBackend reuse the same connection
+pool. Note that only actors defined with `store_results=True` will triggers
+result storage. You can disable the `Results` middleware by passing
+`results=False` to broker constructor.
+
+``` python
+broker = PostgresBroker(url=conninfo, results=False)
+```
+
+
 ## Deployment
 
 Postgres does not replicate notifications to standby instances. Thus the broker
@@ -66,15 +80,9 @@ If you use pgbouncer, you must configure session pooling method to keep notify.
 
 Each dramatiq process opens one persistent connection per queue and one
 connection to ack messages. Thus, to be save, you should provision pool size
-with `num_processes x num_queues x 2`. A best practice is to only add process as
+with `num_processes x num_queues x 2`. When you use `message.get_result()` a
+connection is reserved in the pool. A best practice is to only add process as
 needed and reduce the number of queues.
-
-
-## Roadmap
-
-- Result storage as JSONb.
-
-Feel free to suggest feature through support channels.
 
 
 ## Support
