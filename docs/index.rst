@@ -28,6 +28,7 @@ Contents
 - `Get Started <get-started.rst>`_
 - `User Guide <user-guide.rst>`_
 - `Deployment Guide <deployment-guide.rst>`_
+- `Why Postgres ? <why.rst>`_
 - `Changelog <./changelog.rst>`_
 
 

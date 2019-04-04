@@ -6,5 +6,7 @@ services:
     volumes:
     - ./dramatiq_pg/schema.sql:/docker-entrypoint-initdb.d/000-queue.sql
     - ./tests/func/schema.sql:/docker-entrypoint-initdb.d/001-tests.sql
+    # Uncomment to enable logging of query and duration.
+    # - ./tests/postgresql-conf.sh:/docker-entrypoint-initdb.d/002-configuration.sh
     labels:
       com.dnsdock.alias: postgres.dramatiq.docker

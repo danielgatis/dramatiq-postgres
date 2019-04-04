@@ -4,8 +4,6 @@
 Python3. dramatiq-pg provides a Postgres-based implementation of a dramatiq
 broker.
 
-**The project is not feature complete yet.**
-
 ## Features
 
 - Super simple deployment.
@@ -54,6 +52,11 @@ available, tested on CI.
 
 The CLI tool `dramatiq-pg` allows you to requeue messages, purge old messages
 and show stats on the queue. See `--help` for details.
+
+[Dramatiq-pg
+documentation](https://gitlab.com/bersace/dramatiq-pg/blob/perfs/docs/index.rst)
+is hosted on GitLab and give you more details on deployment and operation of
+Postgres as a Dramatiq broker.
 
 
 ## Support
