@@ -1,13 +1,18 @@
 Dramatiq-pg Changelog
 =====================
 
-Unreleased
-----------
+Version 0.5.0
+-------------
+
+Released 2019-04-04.
 
 This release requires an update of the schema.
 
--  Stores result in Database. This is enabled by default.
--  Flush all queues from CLI.
+- Stores result in Database. This is enabled by default.
+- Flush all queues from CLI.
+- Documentation user guide, deployment, the why.
+- Add performance metric tools.
+
 
 Version 0.4.0
 -------------
@@ -26,6 +31,7 @@ Released 2019-03-13.
 -  Reuse listening connexion to purge message table. This reduce slighly
    connexion usage.
 
+
 Version 0.3.0
 -------------
 
@@ -41,6 +47,7 @@ Released 2019-03-07.
 -  Use BIGSERIAL on message table.
 -  Added index on message table to fasten purge and stats.
 -  Added projet licence, logo and metadata.
+
 
 Version 0.2.0
 -------------

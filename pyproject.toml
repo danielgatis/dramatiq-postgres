@@ -1,6 +1,6 @@
 [tool.poetry]
 name = "dramatiq-pg"
-version = "0.4.1"
+version = "0.5.0"
 description = "Postgres Broker for Dramatiq Task Queue"
 authors = ["Étienne BERSAC"]
 homepage = "https://gitlab.com/dalibo/dramatiq-pg"
