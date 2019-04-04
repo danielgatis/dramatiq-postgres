@@ -43,7 +43,7 @@ class PostgresBroker(Broker):
         if pool and url:
             raise ValueError("You can't set both pool and URL!")
 
-        if url:
+        if not pool:
             self.pool = make_pool(url)
         else:
             # Receive a pool object to have an I/O less __init__.
