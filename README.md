@@ -25,8 +25,9 @@ assumptions for recovering after a crash.
 
 - Install dramatiq-pg package from PyPI:
   ``` console
-  $ pip install dramatiq-pg
+  $ pip install dramatiq-pg psycopg2-binary
   ```
+  Ensure you have either psycopg2 or psycopg2-binary installed.
 - Apply dramatiq\_pg/schema.sql file in your database:
   ``` console
   $ psql -f dramatiq_pg/schema.sql

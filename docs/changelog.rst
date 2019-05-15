@@ -1,6 +1,12 @@
 Dramatiq-pg Changelog
 =====================
 
+Unreleased
+----------
+
+- Allows to use psycopg2-binary wheel.
+
+
 Version 0.5.0
 -------------
 
