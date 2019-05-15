@@ -10,9 +10,8 @@ CREATE TYPE dramatiq."state" AS ENUM (
 );
 
 CREATE TABLE dramatiq.queue(
-  id BIGSERIAL PRIMARY KEY,
+  message_id uuid PRIMARY KEY,
   queue_name TEXT NOT NULL DEFAULT 'default',
-  message_id uuid UNIQUE,
   "state" dramatiq."state",
   mtime TIMESTAMP WITH TIME ZONE DEFAULT (NOW() AT TIME ZONE 'UTC'),
   -- message as encoded by dramatiq.
