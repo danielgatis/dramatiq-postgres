@@ -1,6 +1,6 @@
 import json
 import logging
-import select
+from queue import Empty, Queue
 from random import randint
 from textwrap import dedent
 
@@ -105,6 +105,7 @@ class PostgresConsumer(Consumer):
         self.pool = pool
         self.queue_name = queue_name
         self.timeout = timeout // 1000
+        self.unlock_q = Queue()
 
     def __next__(self):
         # First, open connexion and fetch missed notifies from table.
@@ -133,18 +134,20 @@ class PostgresConsumer(Consumer):
             else:
                 logger.debug("Message %s already consumed. Skipping.", mid)
 
+        # No message to process. Let's clean locks.
+        self.purge_locks()
+
         # We have nothing to do, let's see if the queue needs some cleaning.
         self.auto_purge()
 
     def ack(self, message):
+        # This function is executed in worker thread!
 
-        with transaction(self.get_consume_conn()) as curs:
+        with transaction(self.pool) as curs:
             channel = f"dramatiq.{message.queue_name}.ack"
             payload = Json(message.asdict())
-            lock = hash(str(message.message_id))
             logger.debug(
-                "Notifying %s for ACK %s (%s).",
-                channel, message.message_id, lock)
+                "Notifying %s for ACK %s.", channel, message.message_id)
             # dramatiq always ack a message, even if it has been requeued by
             # the Retries middleware. Thus, only update message in state
             # `consumed`.
@@ -157,10 +160,10 @@ class PostgresConsumer(Consumer):
               RETURNING message
             )
             SELECT
-              pg_notify(%s, message::text),
-              pg_advisory_unlock(%s)
+              pg_notify(%s, message::text)
             FROM updated;
-            """), (payload, message.message_id, channel, lock))
+            """), (payload, message.message_id, channel))
+            self.unlock_q.put_nowait(message)
 
     def auto_purge(self):
         # Automatically purge messages every 100k iteration. Dramatiq defaults
@@ -208,12 +211,14 @@ class PostgresConsumer(Consumer):
             """), (message.message_id, lock))
             # If no row was updated, this mean another worker has consumed it.
             if curs.rowcount:
-                logger.info("Consumed %s (%s).", message.message_id, lock)
+                logger.info(
+                    "Consumed %s@%s.", message.message_id, message.queue_name)
             return 1 == curs.rowcount
 
     def nack(self, message):
-        with transaction(self.get_consume_conn()) as curs:
-            lock = hash(str(message.message_id))
+        # This function is executed in worker thread.
+
+        with transaction(self.pool) as curs:
             # Use the same channel as ack. Actually means done.
             channel = f"dramatiq.{message.queue_name}.ack"
             logger.debug(
@@ -225,13 +230,13 @@ class PostgresConsumer(Consumer):
                  SET "state" = 'rejected', message = %s
                WHERE message_id = %s
                  AND state <> 'rejected'
-                 AND pg_advisory_unlock(%s)
               RETURNING message
             )
             SELECT
               pg_notify(%s, message::text)
             FROM updated;
-            """), (payload, message.message_id, lock, channel))
+            """), (payload, message.message_id, channel))
+            self.unlock_q.put_nowait(message.message_id)
 
     def fetch_pending_notifies(self):
         with transaction(self.listen_conn) as curs:
@@ -245,6 +250,20 @@ class PostgresConsumer(Consumer):
                 Notify(pid=0, channel=None, payload=r[0])
                 for r in curs
             ]
+
+    def purge_locks(self):
+        with transaction(self.get_consume_conn()) as curs:
+            while True:
+                try:
+                    message = self.unlock_q.get(block=False)
+                except Empty:
+                    return
+                lock = hash(str(message.message_id))
+                logger.debug("Unlocking %s.", message.message_id)
+                curs.execute(dedent("""\
+                SELECT pg_advisory_unlock(%s);
+                """), (lock,))
+                self.unlock_q.task_done()
 
     def requeue(self, messages):
         messages = list(messages)
