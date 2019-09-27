@@ -7,7 +7,7 @@ from urllib.parse import (
     urlparse,
 )
 
-from psycopg2 import OperationalError
+from psycopg2 import DatabaseError, OperationalError
 from psycopg2.extensions import (
     ISOLATION_LEVEL_AUTOCOMMIT,
     quote_ident,
@@ -19,6 +19,40 @@ import tenacity
 logger = logging.getLogger(__name__)
 
 
+class ConnectionClosed(DatabaseError):
+    pass
+
+
+retry_pg = tenacity.retry(
+    retry=tenacity.retry_if_exception_type(OperationalError),
+    reraise=True,
+    wait=tenacity.wait_random_exponential(multiplier=1, max=30),
+    stop=tenacity.stop_after_attempt(10),
+    before_sleep=tenacity.before_sleep_log(logger, logging.INFO),
+)
+
+
+def check_conn(conn):
+    try:
+        conn.poll()
+    except OperationalError as e:
+        raise ConnectionClosed(str(e))
+    return conn
+
+
+@retry_pg
+def getconn(pool):
+    # Get a reliable connection to Postgres.
+    conn = pool.getconn()
+    try:
+        check_conn(conn)
+    except ConnectionClosed:
+        pool.putconn(conn)
+        raise  # Let tenacity control retry.
+    return conn
+
+
+@retry_pg
 def make_pool(url):
     parts = urlparse(url)
     qs = dict(parse_qsl(parts.query))
@@ -30,16 +64,6 @@ def make_pool(url):
         # geturl replaces :/// with :/. libpq does not accept that.
         connstring = connstring.replace(':/', ':///')
     return ThreadedConnectionPool(minconn, maxconn, connstring)
-
-@tenacity.retry(
-    retry=tenacity.retry_if_exception(OperationalError),
-    reraise=True,
-    wait=tenacity.wait_random_exponential(multiplier=1, max=30),
-    stop=tenacity.stop_after_attempt(7),
-    before_sleep=tenacity.before_sleep_log(logger, logging.INFO),
-)
-def getconn(pool):
-    return pool.getconn()
 
 
 @contextmanager
@@ -69,7 +93,7 @@ def transaction(conn_or_pool, listen=None):
 
 def wait_for_notifies(conn, timeout=1):
     rlist, *_ = select.select([conn], [], [], timeout)
-    conn.poll()
+    check_conn(conn)  # Pools connection and notifies on the way.
     notifies = conn.notifies[:]
     if notifies:
         logger.debug("Received %d Postgres notifies.", len(conn.notifies))

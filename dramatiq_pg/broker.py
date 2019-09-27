@@ -19,7 +19,10 @@ from psycopg2.extensions import (
 )
 from psycopg2.extras import Json
 
-from .utils import getconn, make_pool, transaction
+from .utils import (
+    ConnectionClosed, check_conn, getconn, make_pool,
+    transaction,
+)
 from .results import PostgresBackend
 
 
@@ -97,16 +100,13 @@ class PostgresBroker(Broker):
 class PostgresConsumer(Consumer):
     def __init__(self, *, pool, queue_name, timeout, **kw):
         self.listen_conn = None
-        self.consume_conn = None
+        self._consume_conn = None
         self.notifies = []
         self.pool = pool
         self.queue_name = queue_name
         self.timeout = timeout // 1000
 
     def __next__(self):
-        if self.consume_conn is None:
-            self.consume_conn = getconn(self.pool)
-
         # First, open connexion and fetch missed notifies from table.
         if self.listen_conn is None:
             self.listen_conn = self.start_listening()
@@ -137,7 +137,8 @@ class PostgresConsumer(Consumer):
         self.auto_purge()
 
     def ack(self, message):
-        with transaction(self.consume_conn) as curs:
+
+        with transaction(self.get_consume_conn()) as curs:
             channel = f"dramatiq.{message.queue_name}.ack"
             payload = Json(message.asdict())
             lock = hash(str(message.message_id))
@@ -176,13 +177,27 @@ class PostgresConsumer(Consumer):
             self.pool.putconn(self.listen_conn)
             self.listen_conn = None
 
-        if self.consume_conn:
-            self.pool.putconn(self.consume_conn)
-            self.consume_conn = None
+        if self._consume_conn:
+            self.pool.putconn(self._consume_conn)
+            self._consume_conn = None
+
+    def get_consume_conn(self):
+        # Ensure connection used for message consumption is steady.
+        if self._consume_conn is not None:
+            try:
+                check_conn(self._consume_conn)
+            except ConnectionClosed:
+                self.pool.putconn(self._consum_conn)
+                self._consume_conn = None
+
+        if self._consume_conn is None:
+            self._consume_conn = getconn(self.pool)
+
+        return self._consume_conn
 
     def consume_one(self, message):
         # Race to process message.
-        with transaction(self.consume_conn) as curs:
+        with transaction(self.get_consume_conn()) as curs:
             lock = hash(str(message.message_id))
             curs.execute(dedent("""\
             UPDATE dramatiq.queue
@@ -197,7 +212,7 @@ class PostgresConsumer(Consumer):
             return 1 == curs.rowcount
 
     def nack(self, message):
-        with transaction(self.consume_conn) as curs:
+        with transaction(self.get_consume_conn()) as curs:
             lock = hash(str(message.message_id))
             # Use the same channel as ack. Actually means done.
             channel = f"dramatiq.{message.queue_name}.ack"
@@ -237,7 +252,7 @@ class PostgresConsumer(Consumer):
             return
 
         logger.debug("Batch update of messages for requeue.")
-        with self.listen_conn.cursor() as curs:
+        with transaction(self.get_consume_conn()) as curs:
             curs.execute(dedent("""\
             UPDATE dramatiq.queue
                SET state = 'queued'
