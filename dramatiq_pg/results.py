@@ -36,7 +36,7 @@ class PostgresBackend(ResultBackend):
         key = self.build_message_key(message)
 
         # Ensure a timeout is set.
-        timeout = timeout or 300_000
+        timeout = (timeout or 300_000) // 1000
         channel = f'dramatiq.{key}.results'
         with transaction(self.pool, listen=channel) as curs:
             # First, search result in table.

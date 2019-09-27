@@ -67,8 +67,8 @@ def transaction(conn_or_pool, listen=None):
             conn_or_pool.putconn(conn)
 
 
-def wait_for_notifies(conn, timeout=1000):
-    rlist, *_ = select.select([conn], [], [], timeout / 1000.)
+def wait_for_notifies(conn, timeout=1):
+    rlist, *_ = select.select([conn], [], [], timeout)
     conn.poll()
     notifies = conn.notifies[:]
     if notifies:
