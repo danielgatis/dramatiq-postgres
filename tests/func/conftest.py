@@ -33,16 +33,16 @@ class Listener(object):
         self.conn.close()
         self.conn = self.cursor = None
 
-    def wait(self, count=1, timeout=30):
+    def wait(self, count=1, timeout=8):
         self.conn.notifies[:] = []
         self.conn.poll()
-        select_timeout = min(5, timeout)
+        select_timeout = min(2, timeout)
         while len(self.conn.notifies) < count:
             if timeout <= 0:
                 raise self.Timeout("Timeout")
-            timeout -= select_timeout
             rlist, *_ = select([self.conn], [], [], select_timeout)
             if not rlist:
+                timeout -= select_timeout
                 continue  # Loop on timeout
             self.conn.poll()
 
