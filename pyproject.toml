@@ -22,6 +22,7 @@ dramatiq = {version = "^1.5",extras = ["watch"]}
 sh = "^1.12"
 pytest-mock = "^1.10"
 psycopg2-binary = "^2.8"
+docutils = "^0.15.2"
 
 [tool.poetry.scripts]
 dramatiq-pg = 'dramatiq_pg.cli:entrypoint'
