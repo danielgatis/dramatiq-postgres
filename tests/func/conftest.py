@@ -3,6 +3,7 @@ import signal
 from contextlib import contextmanager, closing
 from subprocess import Popen
 from select import select
+from time import sleep
 from warnings import filterwarnings
 
 import pytest
@@ -25,22 +26,23 @@ class Listener(object):
         self.conn.set_isolation_level(ISOLATION_LEVEL_AUTOCOMMIT)
         self.cursor = self.conn.cursor()
         self.cursor.execute(f'LISTEN "dramatiq.default.ack";')
+        self.notifies = self.conn.notifies  # Useful for debugging.
 
     def __exit__(self, *_):
         self.cursor.close()
         self.conn.close()
         self.conn = self.cursor = None
 
-    def wait(self, count=1, timeout=30):
+    def wait(self, count=1, timeout=8):
         self.conn.notifies[:] = []
         self.conn.poll()
-        select_timeout = min(5, timeout)
+        select_timeout = min(2, timeout)
         while len(self.conn.notifies) < count:
             if timeout <= 0:
                 raise self.Timeout("Timeout")
-            timeout -= select_timeout
             rlist, *_ = select([self.conn], [], [], select_timeout)
             if not rlist:
+                timeout -= select_timeout
                 continue  # Loop on timeout
             self.conn.poll()
 
@@ -101,6 +103,10 @@ class WorkerManager(object):
     def stop(self, *_):
         self.proc.poll()
         if self.proc.returncode is None:
+            self.proc.terminate()
+            sleep(.5)
+            self.proc.poll()
+        if self.proc.returncode is not None:
             self.proc.terminate()
         self.proc.communicate()
 

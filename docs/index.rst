@@ -9,17 +9,14 @@ Dramatiq_ backed by Postgres_ RDBMS. Dramatiq-pg is licensed under the
 Features
 --------
 
-- Super simple deployment.
-- Uses plain psycopg2. No ORM.
+- Super simple deployment: Single table, no ORM.
 - Stores message payload and results as native JSONb.
-- Standalone result storage.
-- Stores all messages in a single table, in a dedicated schema.
 - Uses LISTEN/NOTIFY to keep worker sync. No polling.
-- Requeue of failed tasks.
-- Delayed task.
+- Implements delayed task.
 - Reliable thanks to Postgres MVCC.
-- Self-healing. Old messages are purge from time to time.
-- Utility CLI for maintainance : flush, purge, stats, etc.
+- Self-healing: automatic purge of old messages. Automatic recovery after
+  crash.
+- Utility CLI for maintainance: flush, purge, stats, etc.
 
 
 Contents

@@ -17,7 +17,7 @@
       import psycopg2.pool
       from dramatiq_pg import PostgresBroker
 
-      dramatiq.set_broker(PostgresBroker(url="postgresql:///?minconn=0&maxconn=10"))
+      dramatiq.set_broker(PostgresBroker(url="postgresql:///?maxconn=10"))
 
       @dramatiq.actor
       def myactor():

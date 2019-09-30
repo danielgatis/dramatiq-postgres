@@ -1,6 +1,6 @@
 import json
 import logging
-import select
+from queue import Empty, Queue
 from random import randint
 from textwrap import dedent
 
@@ -19,8 +19,12 @@ from psycopg2.extensions import (
 )
 from psycopg2.extras import Json
 
-from .utils import make_pool, transaction
+from .utils import (
+    ConnectionClosed, check_conn, getconn, make_pool,
+    transaction,
+)
 from .results import PostgresBackend
+from .utils import wait_for_notifies
 
 
 logger = logging.getLogger(__name__)
@@ -96,23 +100,20 @@ class PostgresBroker(Broker):
 
 class PostgresConsumer(Consumer):
     def __init__(self, *, pool, queue_name, timeout, **kw):
-        self.listen_conn = None
-        self.consume_conn = None
+        self._consume_conn = None
+        self._listen_conn = None
         self.notifies = []
         self.pool = pool
         self.queue_name = queue_name
         self.timeout = timeout // 1000
+        self.unlock_q = Queue()
 
     def __next__(self):
-        if self.consume_conn is None:
-            self.consume_conn = self.pool.getconn()
+        # This function is executed each second.
 
         # First, open connexion and fetch missed notifies from table.
-        if self.listen_conn is None:
-            self.listen_conn = self.start_listening()
-            # We may have received a notify between LISTEN and SELECT of
-            # pending messages. That's not a problem because we are able to
-            # skip spurious notifies.
+        if self._listen_conn is None:
+            # Before reading from LISTEN, scan queue for missed messages.
             self.notifies = self.fetch_pending_notifies()
             logger.debug(
                 "Found %s pending messages in queue %s.",
@@ -133,17 +134,20 @@ class PostgresConsumer(Consumer):
             else:
                 logger.debug("Message %s already consumed. Skipping.", mid)
 
+        # No message to process. Let's clean locks.
+        self.purge_locks()
+
         # We have nothing to do, let's see if the queue needs some cleaning.
         self.auto_purge()
 
     def ack(self, message):
-        with transaction(self.consume_conn) as curs:
+        # This function is executed in worker thread!
+
+        with transaction(self.pool) as curs:
             channel = f"dramatiq.{message.queue_name}.ack"
             payload = Json(message.asdict())
-            lock = hash(str(message.message_id))
             logger.debug(
-                "Notifying %s for ACK %s (%s).",
-                channel, message.message_id, lock)
+                "Notifying %s for ACK %s.", channel, message.message_id)
             # dramatiq always ack a message, even if it has been requeued by
             # the Retries middleware. Thus, only update message in state
             # `consumed`.
@@ -156,10 +160,10 @@ class PostgresConsumer(Consumer):
               RETURNING message
             )
             SELECT
-              pg_notify(%s, message::text),
-              pg_advisory_unlock(%s)
+              pg_notify(%s, message::text)
             FROM updated;
-            """), (payload, message.message_id, channel, lock))
+            """), (payload, message.message_id, channel))
+            self.unlock_q.put_nowait(message)
 
     def auto_purge(self):
         # Automatically purge messages every 100k iteration. Dramatiq defaults
@@ -172,33 +176,72 @@ class PostgresConsumer(Consumer):
         logger.info("Purged %d messages in all queues.", deleted)
 
     def close(self):
-        if self.listen_conn:
-            self.pool.putconn(self.listen_conn)
-            self.listen_conn = None
+        if self._listen_conn:
+            self.pool.putconn(self._listen_conn)
+            self._listen_conn = None
 
-        if self.consume_conn:
-            self.pool.putconn(self.consume_conn)
-            self.consume_conn = None
+        if self._consume_conn:
+            self.pool.putconn(self._consume_conn)
+            self._consume_conn = None
+
+    def get_consume_conn(self):
+        # Ensure connection used for message consumption is steady.
+        if self._consume_conn is not None:
+            try:
+                check_conn(self._consume_conn)
+            except ConnectionClosed:
+                logger.info("Connection closed. Reconnecting...")
+                self.pool.putconn(self._consum_conn)
+                self._consume_conn = None
+
+        if self._consume_conn is None:
+            logger.debug("Using new connection for message consumption.")
+            self._consume_conn = getconn(self.pool)
+
+        return self._consume_conn
+
+    def get_listen_conn(self):
+        # Opens listening connection with proper configuration.
+        if self._listen_conn is not None:
+            try:
+                return check_conn(self._listen_conn)
+            except ConnectionClosed:
+                logger.info("Connection closed. Reconnecting...")
+
+        self._listen_conn = conn = getconn(self.pool)
+        # This is for NOTIFY consistency, according to psycopg2 doc.
+        conn.set_isolation_level(ISOLATION_LEVEL_AUTOCOMMIT)
+        channel = quote_ident(f"dramatiq.{self.queue_name}.enqueue", conn)
+        dq = dq_name(self.queue_name)
+        dchannel = quote_ident(f"dramatiq.{dq}.enqueue", conn)
+        with conn.cursor() as curs:
+            logger.debug(
+                "Listening on channels %s, %s.", channel, dchannel)
+            curs.execute(f"LISTEN {channel}; LISTEN {dchannel};")
+        return self._listen_conn
 
     def consume_one(self, message):
         # Race to process message.
-        with transaction(self.consume_conn) as curs:
+        with transaction(self.get_consume_conn()) as curs:
             lock = hash(str(message.message_id))
             curs.execute(dedent("""\
             UPDATE dramatiq.queue
                SET "state" = 'consumed',
                    mtime = (NOW() AT TIME ZONE 'UTC')
              WHERE message_id = %s
+               AND state IN ('queued', 'consumed')
                AND pg_try_advisory_lock(%s);
             """), (message.message_id, lock))
             # If no row was updated, this mean another worker has consumed it.
             if curs.rowcount:
-                logger.info("Consumed %s (%s).", message.message_id, lock)
+                logger.info(
+                    "Consumed %s@%s.", message.message_id, message.queue_name)
             return 1 == curs.rowcount
 
     def nack(self, message):
-        with transaction(self.consume_conn) as curs:
-            lock = hash(str(message.message_id))
+        # This function is executed in worker thread.
+
+        with transaction(self.pool) as curs:
             # Use the same channel as ack. Actually means done.
             channel = f"dramatiq.{message.queue_name}.ack"
             logger.debug(
@@ -210,16 +253,21 @@ class PostgresConsumer(Consumer):
                  SET "state" = 'rejected', message = %s
                WHERE message_id = %s
                  AND state <> 'rejected'
-                 AND pg_advisory_unlock(%s)
               RETURNING message
             )
             SELECT
               pg_notify(%s, message::text)
             FROM updated;
-            """), (payload, message.message_id, lock, channel))
+            """), (payload, message.message_id, channel))
+            self.unlock_q.put_nowait(message.message_id)
 
     def fetch_pending_notifies(self):
-        with transaction(self.listen_conn) as curs:
+        # Get or open connection.
+        conn = self.get_listen_conn()
+        # We may have received a notify between LISTEN and SELECT of pending
+        # messages. That's not a problem because we are able to skip spurious
+        # notifies.
+        with transaction(conn) as curs:
             curs.execute(dedent("""\
             SELECT message::text
               FROM dramatiq.queue
@@ -231,42 +279,35 @@ class PostgresConsumer(Consumer):
                 for r in curs
             ]
 
+    def poll_for_notify(self):
+        self.notifies += wait_for_notifies(
+            self.get_listen_conn(), self.timeout)
+
+    def purge_locks(self):
+        with transaction(self.get_consume_conn()) as curs:
+            while True:
+                try:
+                    message = self.unlock_q.get(block=False)
+                except Empty:
+                    return
+                lock = hash(str(message.message_id))
+                logger.debug("Unlocking %s.", message.message_id)
+                curs.execute(dedent("""\
+                SELECT pg_advisory_unlock(%s);
+                """), (lock,))
+                self.unlock_q.task_done()
+
     def requeue(self, messages):
         messages = list(messages)
         if not len(messages):
             return
 
         logger.debug("Batch update of messages for requeue.")
-        with self.listen_conn.cursor() as curs:
+        with transaction(self.get_consume_conn()) as curs:
             curs.execute(dedent("""\
             UPDATE dramatiq.queue
                SET state = 'queued'
             WHERE message_id IN %s;
             """), (tuple(m.message_id for m in messages),))
-
-    def start_listening(self):
-        # Opens listening connection with proper configuration.
-
-        conn = self.pool.getconn()
-        # This is for NOTIFY consistency, according to psycopg2 doc.
-        conn.set_isolation_level(ISOLATION_LEVEL_AUTOCOMMIT)
-        channel = quote_ident(f"dramatiq.{self.queue_name}.enqueue", conn)
-        dq = dq_name(self.queue_name)
-        dchannel = quote_ident(f"dramatiq.{dq}.enqueue", conn)
-        with conn.cursor() as curs:
-            logger.debug(
-                "Listening on channels %s, %s.", channel, dchannel)
-            curs.execute(f"LISTEN {channel}; LISTEN {dchannel};")
-        return conn
-
-    def poll_for_notify(self):
-        rlist, *_ = select.select([self.listen_conn], [], [], self.timeout)
-        self.listen_conn.poll()
-        if self.listen_conn.notifies:
-            self.notifies += self.listen_conn.notifies
-            logger.debug(
-                "Received %d Postgres notifies for queue %s.",
-                len(self.listen_conn.notifies),
-                self.queue_name,
-            )
-            self.listen_conn.notifies[:] = []
+            # We don't bother about locks, because requeue occurs on worker
+            # stop.

@@ -4,13 +4,15 @@ Dramatiq-pg Changelog
 Unreleased
 ----------
 
-This release requires an update fo the schema and to installation process.
-
 - Automatic recovery of message after crash. You don't need to manually requeue
   anymore.
+- More reliability: connection lost are handled everywhere, retrying on network
+  failure is enabled.
 - Allows to use psycopg2-binary wheel. You must install psycopg2 or
   psycopg2-binary yourself.
-- dramatiq.queue table has been review for optimisation.
+- By default, connection pool tries to reuse all connections.
+- dramatiq.queue table definition has been reviewed for optimisation. Changes
+  are not required.
 
 
 Version 0.5.0

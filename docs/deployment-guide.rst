@@ -54,11 +54,9 @@ Worker Pool
 
 The Dramatiq worker pool size is slightly more complex to size. Each dramatiq
 worker process opens **two** persistent connections per queue : one for
-listening and one to consume/ack messages. Thus, to be safe, you should
-provision worker pool size with ``num_queues x 2``.
-
-If you actors send messages, you must add one connection per thread, just like
-your application. The pool size will be ``num_queues x 2 + num_threads``.
+listening and one to consume/ack messages. Each worker thread requires a
+connection to acknowledge message. Thus, to be save, you should size the pool
+with ``num_queues x 2 + num_threads``.
 
 Other Usage
 -----------
@@ -79,8 +77,8 @@ The final formula for allocating connection on PostgreSQL would be:
 
 .. code::
 
-   app_pool_size = num_threads
-   worker_pool_size = num_queues * 2 + num_threads
+   app_pool_size = app_threads
+   worker_pool_size = num_queues * 2 + app_threads
    scheduler_pool_size = 1
    monitoring_pool_size = 1
    management_pool_size = 1

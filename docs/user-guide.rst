@@ -49,7 +49,7 @@ The ``pool`` is a psycopg2 connection pool object.
    from dramatiq_pg import PostgresBroker
    from psycopg2.pool import ThreadedConnectionPool
 
-   broker = PostgresBroker(pool=ThreadedConnectionPool(0, 8, "")
+   broker = PostgresBroker(pool=ThreadedConnectionPool(8, 8, "")
 
 
 The ``url`` argument is a psycopg2-compatible `connection string
@@ -63,9 +63,10 @@ not from keyword/value connection string.
 
    from dramatiq_pg import PostgresBroker
 
-   broker = PostgresBroker(url="postgresql://user:password@host/dbname?minconn=0&maxconn=8)
+   broker = PostgresBroker(url="postgresql://user:password@host/dbname?minconn=8&maxconn=8)
 
-The default value of ``minconn`` is 0 while ``maxconn`` defaults to 16.
+The default value ``maxconn`` defaults to 16. The default value of ``minconn``
+is the value of ``maxconn``.
 
 
 Result Storage
