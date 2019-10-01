@@ -123,6 +123,12 @@ class PostgresConsumer(Consumer):
             # Then, fetch notifies from Pg connexion.
             self.poll_for_notify()
 
+        if not self.notifies and randint(0, 300):
+            # If notifies are consumed, randomly poll for crashed messages.
+            # Since we're called each second, this condition limits polling to
+            # one SELECT every five minutes of inactivity.
+            self.notifies[:] = self.fetch_pending_notifies()
+
         # If we have some notifies, loop to find one todo.
         while self.notifies:
             notify = self.notifies.pop(0)
