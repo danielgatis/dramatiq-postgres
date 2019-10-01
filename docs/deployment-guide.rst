@@ -132,7 +132,8 @@ Crash recovery
 ==============
 
 When a worker process crashes in the middle of a task, the message will be
-replayed on next start.
+replayed on restart or by an inactive worker. Inactive worker effectively polls
+for crashed message every 5 minutes.
 
 Note that Dramatiq assumes tasks are idempotent. Thus, requeueing a processing
 task should not be an issue.
