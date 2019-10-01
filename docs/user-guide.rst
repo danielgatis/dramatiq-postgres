@@ -20,16 +20,19 @@ This package installs a Python package named ``dramatiq_pg`` and a script named
 
    set_broker(PostgresBroker())
 
-By default, ``PostgresBroker`` reads ``PG*`` environment variables.
+By default, ``PostgresBroker`` reads ``PG*`` environment variables. Further
+options are detailed below.
 
 
 Setting up PostgreSQL
 =====================
 
-Postgres is not a native broker. Thus you need to initialize schema and table
-before using it. For now, Dramatiq-pg does not manage the schema for you and
-let's you use your database migration tool. Dramatiq-pg ships a ``schema.sql``
-file as a starting point for initializing the database for Dramatiq-pg.
+Postgres is not a native broker. Dramatiq-pg stores messages in a single table
+in its own schema. Thus you need to initialize schema and table before using
+Postgres as a broker. For now, Dramatiq-pg does not manage the schema for you
+and let's you use your database migration tool. Dramatiq-pg ships a
+``schema.sql`` file as a starting point for initializing the database for
+Dramatiq-pg.
 
 ::
 
@@ -65,8 +68,12 @@ not from keyword/value connection string.
 
    broker = PostgresBroker(url="postgresql://user:password@host/dbname?minconn=8&maxconn=8)
 
-The default value ``maxconn`` defaults to 16. The default value of ``minconn``
-is the value of ``maxconn``.
+``maxconn`` defaults to 16. ``minconn`` defaults to the value of ``maxconn``.
+Dramatiq-pg initialize connection pool from url in a special way: the pool
+always begins with 0 connection, even if minconn is positive. However, the pool
+will keep unused connection opened until the minimum number of connection is
+reached. Thus starting all Dramatiq processes won't trigger a huge connection
+demand on Postgres server.
 
 
 Result Storage
