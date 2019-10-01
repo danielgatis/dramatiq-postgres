@@ -2,6 +2,9 @@
  Deployment Guide
 ==================
 
+Dramatiq-pg is known to run on production. While using Postgres simplifies a lot
+deployment, read carefully this document to avoid some pitfalls.
+
 Dramatiq-pg implements broker logic in application process. Postgres is only
 responsible of the storage and the inter-client notifications. There is no
 additionnal service to maintain.
