@@ -4,7 +4,7 @@
 
 Using Postgres as a message broker may look odd. There is some reason to use
 Postgres as a message broker and some to use something else. This page gives a
-few element to make the best choice.
+few elements to make the best choice.
 
 Let's start with some generalities. Webservice delegating tasks to background
 service is far from new as a software architecture pattern. We can resume the
@@ -45,7 +45,7 @@ app. The thing is that Postgres can check almost all of the feature list of both
 message broker and key-value store:
 
 - Storing unstructured message, thanks to JSON.
-- Instant asynchronous remote notifaction, thanks to ``LISTEN`` and ``NOTIFY``.
+- Instant asynchronous multicast notifaction, thanks to ``LISTEN`` and ``NOTIFY``.
 - Ensuring persistence, that's the base of Postgres job.
 - Ensuring reliability, Postgres MVCC and HA should do the job.
 
@@ -106,4 +106,4 @@ multiplications of skills needed and the performance you need to fit your
 application usage and workflow.
 
 Overall, Postgres as a broker seems fair for simple application with low message
-rate and a dedicated Postgres cluster.
+rate, few queues and a dedicated Postgres cluster.
