@@ -11,6 +11,7 @@ Unreleased
 - Allows to use psycopg2-binary wheel. You must install psycopg2 or
   psycopg2-binary yourself.
 - By default, connection pool tries to reuse all connections.
+- Configure connection string of CLI.
 - dramatiq.queue table definition has been reviewed for optimisation. Changes
   are not required.
 

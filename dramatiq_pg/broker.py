@@ -163,7 +163,7 @@ class PostgresConsumer(Consumer):
               pg_notify(%s, message::text)
             FROM updated;
             """), (payload, message.message_id, channel))
-            self.unlock_q.put_nowait(message)
+            self.unlock_q.put_nowait(message.message_id)
 
     def auto_purge(self):
         # Automatically purge messages every 100k iteration. Dramatiq defaults
@@ -287,11 +287,11 @@ class PostgresConsumer(Consumer):
         with transaction(self.get_consume_conn()) as curs:
             while True:
                 try:
-                    message = self.unlock_q.get(block=False)
+                    message_id = self.unlock_q.get(block=False)
                 except Empty:
                     return
-                lock = hash(str(message.message_id))
-                logger.debug("Unlocking %s.", message.message_id)
+                lock = hash(str(message_id))
+                logger.debug("Unlocking %s.", message_id)
                 curs.execute(dedent("""\
                 SELECT pg_advisory_unlock(%s);
                 """), (lock,))

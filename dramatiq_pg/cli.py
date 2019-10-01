@@ -1,7 +1,9 @@
 import argparse
 import logging
+import os
 import pdb
-from contextlib import closing, contextmanager
+import sys
+from distutils.util import strtobool
 from pkg_resources import get_distribution
 from textwrap import dedent
 
@@ -9,16 +11,18 @@ from dramatiq.cli import (
     LOGFORMAT,
     VERBOSITY,
 )
-from psycopg2 import connect
 
 from .broker import purge
+from .utils import make_pool, transaction
 
 
 logger = logging.getLogger(__name__)
 
 
 def entrypoint():
-    logging.basicConfig(level=logging.INFO, format=LOGFORMAT)
+    debug = strtobool(os.environ.get('DEBUG', 'n'))
+    level = logging.DEBUG if debug else logging.INFO
+    logging.basicConfig(level=level, format=LOGFORMAT)
 
     try:
         exit(main())
@@ -26,10 +30,14 @@ def entrypoint():
         logger.info("Interrupted.")
     except Exception:
         logger.exception('Unhandled error:')
-        logger.error(
-            "Please file an issue at "
-            "https://gitlab.com/dalibo/dramatiq-pg/issues/new with full log.",
-        )
+        if debug:
+            pdb.post_mortem(sys.exc_info()[2])
+        else:
+            logger.error(
+                "Please file an issue at "
+                "https://gitlab.com/dalibo/dramatiq-pg/issues/new with full "
+                "log.",
+            )
     exit(1)
 
 
@@ -42,6 +50,16 @@ def main():
     if not hasattr(args, 'command'):
         logger.error("Missing command. See --help for usage.")
         return 1
+
+    args.pool = make_pool(args.url, maxconn=1)
+
+    try:
+        with transaction(args.pool) as curs:
+            curs.connection.poll()
+    except Exception as e:
+        logger.error("Failed to connect: %s.", e)
+        return 1
+
     return args.command(args)
 
 
@@ -57,6 +75,12 @@ def make_argument_parser():
     parser.add_argument(
         "--verbose", "-v", default=0, action="count",
         help="turn on verbose log output",
+    )
+    parser.add_argument(
+        "-d", "--dsn", "--connstring",
+        action="store", dest="url", default="",
+        metavar='CONNSTRING',
+        help="Postgres connection string.",
     )
 
     subparsers = parser.add_subparsers()
@@ -91,7 +115,7 @@ def make_argument_parser():
 
 
 def flush_command(args):
-    with transaction() as curs:
+    with transaction(args.pool) as curs:
         curs.execute(dedent("""\
         DELETE FROM dramatiq.queue
          WHERE "state" IN ('queued', 'consumed');
@@ -101,13 +125,13 @@ def flush_command(args):
 
 
 def purge_command(args):
-    with transaction() as curs:
+    with transaction(args.pool) as curs:
         deleted = purge(curs, args.purge_maxage)
     logger.info("Deleted %d messages.", deleted)
 
 
 def recover_command(args):
-    with transaction() as curs:
+    with transaction(args.pool) as curs:
         curs.execute(dedent("""\
         UPDATE dramatiq.queue
            SET state = 'queued'
@@ -119,7 +143,7 @@ def recover_command(args):
 
 
 def stats_command(args):
-    with transaction() as curs:
+    with transaction(args.pool) as curs:
         curs.execute(dedent("""\
         SELECT "state", count(1)
           FROM dramatiq.queue
@@ -129,15 +153,6 @@ def stats_command(args):
 
     for state in 'queued', 'consumed', 'done', 'rejected':
         print(f'{state}: {stats.get(state, 0)}')
-
-
-@contextmanager
-def transaction(connstring=""):
-    # Manager for connecting to psycopg2 for a single transaction.
-    with closing(connect(connstring)) as conn:
-        with conn:
-            with conn.cursor() as curs:
-                yield curs
 
 
 if '__main__' == __name__:

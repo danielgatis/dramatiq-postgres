@@ -1,8 +1,10 @@
 import os
 import signal
+import sys
 from contextlib import contextmanager, closing
 from subprocess import Popen
 from select import select
+from shutil import copyfileobj
 from time import sleep
 from warnings import filterwarnings
 
@@ -109,6 +111,10 @@ class WorkerManager(object):
         if self.proc.returncode is not None:
             self.proc.terminate()
         self.proc.communicate()
+
+        sys.stdout.write("\n")
+        with open(self.logfilename) as fo:
+            copyfileobj(fo, sys.stdout)
 
     def crash(self):
         pgid = os.getpgid(self.proc.pid)
