@@ -4,6 +4,8 @@ Dramatiq-pg Changelog
 Unreleased
 ----------
 
+- Respect prefetch from Dramatiq, improving cooperation between workers.
+  Contribution from @mag.
 - Automatic recovery of message after crash. You don't need to manually requeue
   anymore.
 - More reliability: connection lost are handled everywhere, retrying on network
