@@ -1,5 +1,6 @@
 import json
 import logging
+import time
 from queue import Empty, Queue
 from random import randint
 from textwrap import dedent
@@ -9,7 +10,7 @@ from dramatiq.broker import (
     Consumer,
     MessageProxy,
 )
-from dramatiq.common import current_millis, dq_name
+from dramatiq.common import current_millis, dq_name, compute_backoff
 from dramatiq.message import Message
 from dramatiq.results import Results
 from psycopg2.extensions import (
@@ -99,7 +100,7 @@ class PostgresBroker(Broker):
 
 
 class PostgresConsumer(Consumer):
-    def __init__(self, *, pool, queue_name, timeout, **kw):
+    def __init__(self, *, pool, queue_name, prefetch, timeout, **kw):
         self._consume_conn = None
         self._listen_conn = None
         self.notifies = []
@@ -107,6 +108,9 @@ class PostgresConsumer(Consumer):
         self.queue_name = queue_name
         self.timeout = timeout // 1000
         self.unlock_q = Queue()
+        self.in_processing = 0
+        self.prefetch = prefetch
+        self.misses = 0
 
     def __next__(self):
         # This function is executed each second.
@@ -118,6 +122,16 @@ class PostgresConsumer(Consumer):
             logger.debug(
                 "Found %s pending messages in queue %s.",
                 len(self.notifies), self.queue_name)
+        #
+        if self.in_processing >= self.prefetch:
+            # Wait and don't consume the message, other worker will be faster
+            self.misses, backoff_ms = compute_backoff(self.misses,
+                                                      max_backoff=1000)
+            logger.debug(f"Too many messages in processing:"
+                         f" {self.in_processing}"
+                         f" sleeping {backoff_ms}")
+            time.sleep(backoff_ms / 1000)
+            return None
 
         if not self.notifies:
             # Then, fetch notifies from Pg connexion.
@@ -136,6 +150,7 @@ class PostgresConsumer(Consumer):
             message = Message(**payload)
             mid = message.message_id
             if self.consume_one(message):
+                self.in_processing += 1
                 return MessageProxy(message)
             else:
                 logger.debug("Message %s already consumed. Skipping.", mid)
@@ -170,6 +185,7 @@ class PostgresConsumer(Consumer):
             FROM updated;
             """), (payload, message.message_id, channel))
             self.unlock_q.put_nowait(message.message_id)
+        self.in_processing -= 1
 
     def auto_purge(self):
         # Automatically purge messages every 100k iteration. Dramatiq defaults
@@ -266,6 +282,7 @@ class PostgresConsumer(Consumer):
             FROM updated;
             """), (payload, message.message_id, channel))
             self.unlock_q.put_nowait(message.message_id)
+        self.in_processing -= 1
 
     def fetch_pending_notifies(self):
         # Get or open connection.
