@@ -1,8 +1,10 @@
 Dramatiq-pg Changelog
 =====================
 
-Unreleased
-----------
+Version 0.7.0
+-------------
+
+Release 2019-11-04.
 
 - Respect prefetch from Dramatiq, improving cooperation between workers.
   Contribution from @mag.
