@@ -1,6 +1,14 @@
 Dramatiq-pg Changelog
 =====================
 
+Version 0.7.1
+-------------
+
+Released 2019-11-12.
+
+- Fix polling when idle. Patch from Daniel.
+
+
 Version 0.7.0
 -------------
 
