@@ -6,7 +6,7 @@ from example import writer
 
 
 def test_stats():
-    out = dramatiq_pg('stats')
+    out = dramatiq_pg('stats', _truncate_exc=False)
     assert 'done: ' in out
 
 
