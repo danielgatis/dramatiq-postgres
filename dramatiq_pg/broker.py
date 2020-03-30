@@ -40,7 +40,8 @@ def purge(curs, max_age='30 days'):
 
 
 class PostgresBroker(Broker):
-    def __init__(self, *, pool=None, url="", results=True, **kw):
+    def __init__(self, *, pool=None, url="", results=True,
+                 schema=None, table=None, **kw):
         super(PostgresBroker, self).__init__(**kw)
         if pool and url:
             raise ValueError("You can't set both pool and URL!")
@@ -52,8 +53,11 @@ class PostgresBroker(Broker):
             self.pool = pool
         self.backend = None
         if results:
-            self.backend = PostgresBackend(pool=self.pool)
+            self.backend = PostgresBackend(
+                pool=self.pool, schema=schema, table=table)
             self.add_middleware(Results(backend=self.backend))
+
+        QUERIES.build_queries(schema, table)
 
     def consume(self, queue_name, prefetch=1, timeout=30000):
         return PostgresConsumer(

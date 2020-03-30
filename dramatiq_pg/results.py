@@ -19,7 +19,7 @@ logger = logging.getLogger(__name__)
 
 
 class PostgresBackend(ResultBackend):
-    def __init__(self, *, url=None, pool=None, **kw):
+    def __init__(self, *, url=None, pool=None, schema=None, table=None, **kw):
         super().__init__(**kw)
 
         if url:
@@ -27,6 +27,8 @@ class PostgresBackend(ResultBackend):
         else:
             # Receive a pool object to have an I/O less __init__.
             self.pool = pool
+
+        QUERIES.build_queries(schema, table)
 
     def build_message_key(self, message):
         # Just use message_id, it's UNIQUE in table.

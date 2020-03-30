@@ -12,8 +12,8 @@ from dramatiq.cli import (
     VERBOSITY,
 )
 
-from .broker import purge
-from .utils import make_pool, transaction
+from .broker import purge, QUERIES as BROKER_QUERIES
+from .utils import make_pool, transaction, QueryManager
 
 
 logger = logging.getLogger(__name__)
@@ -60,6 +60,10 @@ def main():
         logger.error("Failed to connect: %s.", e)
         return 1
 
+    if args.tablename:
+        BROKER_QUERIES.build_queries(args.tablename)
+        QUERIES.build_queries(args.tablename)
+
     return args.command(args)
 
 
@@ -81,6 +85,12 @@ def make_argument_parser():
         action="store", dest="url", default="",
         metavar='CONNSTRING',
         help="Postgres connection string.",
+    )
+    parser.add_argument(
+        "--tablename",
+        action="store", dest="tablename", default=None,
+        metavar="TABLENAME",
+        help="Alternative full table name including schema.",
     )
 
     subparsers = parser.add_subparsers()
