@@ -1,3 +1,4 @@
+#!/usr/bin/env python
 #
 #       E X A M P L E
 #
