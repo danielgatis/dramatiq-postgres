@@ -3,6 +3,9 @@ version: "2"
 services:
   postgres:
     image: postgres:11-alpine
+    environment:
+      POSTGRES_USER: postgres
+      POSTGRES_PASSWORD: postgres
     volumes:
     - ./dramatiq_pg/schema.sql:/docker-entrypoint-initdb.d/000-queue.sql
     - ./tests/func/schema.sql:/docker-entrypoint-initdb.d/001-tests.sql

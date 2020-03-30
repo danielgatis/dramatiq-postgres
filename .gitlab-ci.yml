@@ -10,6 +10,8 @@ tests:
   variables:
     PGHOST: postgres
     PGUSER: postgres
+    PGPASSWORD: tonnelle
+    POSTGRES_PASSWORD: tonnelle
   script:
   - tests/func/entrypoint.sh
   cache:
