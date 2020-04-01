@@ -1,8 +1,9 @@
-# dramatiq-pg − Postgres Broker for Dramatiq
+![Dramatiq-pg](https://gitlab.com/dalibo/dramatiq-pg/raw/master/docs/logo-horizontal.png?inline=false)
 
 [Dramatiq](https://dramatiq.io/) is a simple task queue implementation for
 Python3. dramatiq-pg provides a Postgres-based implementation of a dramatiq
 broker.
+
 
 ## Features
 
@@ -65,3 +66,8 @@ GitLab](https://gitlab.com/dalibo/dramatiq-pg/issues/new) with as much
 information as possible.
 
 dramatiq_pg is available under the PostgreSQL licence.
+
+
+## Credit
+
+[Damien CAZEILS](http://www.damiencazeils.com/) created the logo.
