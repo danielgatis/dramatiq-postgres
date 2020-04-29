@@ -23,7 +23,7 @@ from psycopg2.extras import Json
 
 from .utils import (
     ConnectionClosed, check_conn, getconn, make_pool,
-    transaction,
+    transaction, QueryManager,
 )
 from .results import PostgresBackend
 from .utils import wait_for_notifies
@@ -35,16 +35,13 @@ logger = logging.getLogger(__name__)
 def purge(curs, max_age='30 days'):
     # Delete old messages. Returns deleted messages.
 
-    curs.execute(dedent("""\
-    DELETE FROM dramatiq.queue
-     WHERE "state" IN ('done', 'rejected')
-       AND mtime <= (NOW() - interval %s);
-    """), (max_age,))
+    curs.execute(QUERIES.PURGE, (max_age,))
     return curs.rowcount
 
 
 class PostgresBroker(Broker):
-    def __init__(self, *, pool=None, url="", results=True, **kw):
+    def __init__(self, *, pool=None, url="", results=True,
+                 schema=None, table=None, **kw):
         super(PostgresBroker, self).__init__(**kw)
         if pool and url:
             raise ValueError("You can't set both pool and URL!")
@@ -56,8 +53,11 @@ class PostgresBroker(Broker):
             self.pool = pool
         self.backend = None
         if results:
-            self.backend = PostgresBackend(pool=self.pool)
+            self.backend = PostgresBackend(
+                pool=self.pool, schema=schema, table=table)
             self.add_middleware(Results(backend=self.backend))
+
+        QUERIES.build_queries(schema, table)
 
     def consume(self, queue_name, prefetch=1, timeout=30000):
         return PostgresConsumer(
@@ -81,18 +81,9 @@ class PostgresBroker(Broker):
             message.options['eta'] = current_millis() + delay
 
         q = message.queue_name
-        insert = (dedent("""\
-        WITH enqueued AS (
-          INSERT INTO dramatiq.queue (queue_name, message_id, "state", message)
-          VALUES (%s, %s, 'queued', %s)
-          ON CONFLICT (message_id)
-            DO UPDATE SET "state" = 'queued', message = EXCLUDED.message
-          RETURNING queue_name, message
-        )
-        SELECT
-          pg_notify('dramatiq.' || queue_name || '.enqueue', message::text)
-        FROM enqueued;
-        """), (q, message.message_id, Json(message.asdict())))
+        insert = (
+            QUERIES.ENQUEUE,
+            (q, message.message_id, Json(message.asdict())))
 
         with transaction(self.pool) as curs:
             logger.debug("Upserting %s in queue %s.", message.message_id, q)
@@ -173,18 +164,9 @@ class PostgresConsumer(Consumer):
             # dramatiq always ack a message, even if it has been requeued by
             # the Retries middleware. Thus, only update message in state
             # `consumed`.
-            curs.execute(dedent("""\
-            WITH updated AS (
-              UPDATE dramatiq.queue
-                 SET "state" = 'done', message = %s
-               WHERE message_id = %s
-                 AND state = 'consumed'
-              RETURNING message
-            )
-            SELECT
-              pg_notify(%s, message::text)
-            FROM updated;
-            """), (payload, message.message_id, channel))
+            curs.execute(
+                QUERIES.ACK,
+                (payload, message.message_id, channel))
             self.unlock_q.put_nowait(message.message_id)
         self.in_processing -= 1
 
@@ -248,14 +230,9 @@ class PostgresConsumer(Consumer):
         with transaction(self.get_consume_conn()) as curs:
             lock = int(hashlib.sha256(str(message.message_id).encode('utf-8'))
                        .hexdigest(), 16) % 10**18
-            curs.execute(dedent("""\
-            UPDATE dramatiq.queue
-               SET "state" = 'consumed',
-                   mtime = (NOW() AT TIME ZONE 'UTC')
-             WHERE message_id = %s
-               AND state IN ('queued', 'consumed')
-               AND pg_try_advisory_lock(%s);
-            """), (message.message_id, lock))
+            curs.execute(
+                QUERIES.CONSUME_ONE,
+                (message.message_id, lock))
             # If no row was updated, this mean another worker has consumed it.
             if curs.rowcount:
                 logger.info(
@@ -271,18 +248,9 @@ class PostgresConsumer(Consumer):
             logger.debug(
                 "Notifying %s for NACK %s.", channel, message.message_id)
             payload = Json(message.asdict())
-            curs.execute(dedent("""\
-            WITH updated AS (
-              UPDATE dramatiq.queue
-                 SET "state" = 'rejected', message = %s
-               WHERE message_id = %s
-                 AND state <> 'rejected'
-              RETURNING message
-            )
-            SELECT
-              pg_notify(%s, message::text)
-            FROM updated;
-            """), (payload, message.message_id, channel))
+            curs.execute(
+                QUERIES.NACK,
+                (payload, message.message_id, channel))
             self.unlock_q.put_nowait(message.message_id)
         self.in_processing -= 1
 
@@ -293,12 +261,9 @@ class PostgresConsumer(Consumer):
         # messages. That's not a problem because we are able to skip spurious
         # notifies.
         with transaction(conn) as curs:
-            curs.execute(dedent("""\
-            SELECT message::text
-              FROM dramatiq.queue
-             WHERE state IN ('queued', 'consumed')
-               AND queue_name IN %s;
-            """), ((self.queue_name, dq_name(self.queue_name)),))
+            curs.execute(
+                QUERIES.FETCH_PENDING,
+                ((self.queue_name, dq_name(self.queue_name)),))
             return [
                 Notify(pid=0, channel=None, payload=r[0])
                 for r in curs
@@ -329,10 +294,73 @@ class PostgresConsumer(Consumer):
 
         logger.debug("Batch update of messages for requeue.")
         with transaction(self.get_consume_conn()) as curs:
-            curs.execute(dedent("""\
-            UPDATE dramatiq.queue
-               SET state = 'queued'
-            WHERE message_id IN %s;
-            """), (tuple(m.message_id for m in messages),))
+            curs.execute(
+                QUERIES.REQUEUE,
+                (tuple(m.message_id for m in messages),))
             # We don't bother about locks, because requeue occurs on worker
             # stop.
+
+
+QUERIES = QueryManager(dict(
+    ACK=dedent("""\
+        WITH updated AS (
+            UPDATE {schema}.{tablename}
+                SET "state" = 'done', message = %s
+            WHERE message_id = %s
+                AND state = 'consumed'
+            RETURNING message
+        )
+        SELECT
+            pg_notify(%s, message::text)
+        FROM updated;
+        """),
+    CONSUME_ONE=dedent("""\
+        UPDATE {schema}.{tablename}
+            SET "state" = 'consumed',
+                mtime = (NOW() AT TIME ZONE 'UTC')
+            WHERE message_id = %s
+            AND state IN ('queued', 'consumed')
+            AND pg_try_advisory_lock(%s);
+        """),
+    ENQUEUE=dedent("""\
+        WITH enqueued AS (
+            INSERT INTO {schema}.{tablename}
+            (queue_name, message_id, "state", message)
+            VALUES (%s, %s, 'queued', %s)
+            ON CONFLICT (message_id)
+                DO UPDATE SET "state" = 'queued', message = EXCLUDED.message
+            RETURNING queue_name, message
+        )
+        SELECT
+            pg_notify('dramatiq.' || queue_name || '.enqueue', message::text)
+        FROM enqueued;
+        """),  # noqa
+    FETCH_PENDING=dedent("""\
+        SELECT message::text
+            FROM {schema}.{tablename}
+            WHERE state IN ('queued', 'consumed')
+            AND queue_name IN %s;
+        """),
+    NACK=dedent("""\
+        WITH updated AS (
+            UPDATE {schema}.{tablename}
+                SET "state" = 'rejected', message = %s
+            WHERE message_id = %s
+                AND state <> 'rejected'
+            RETURNING message
+        )
+        SELECT
+            pg_notify(%s, message::text)
+        FROM updated;
+        """),
+    PURGE=dedent("""\
+        DELETE FROM {schema}.{tablename}
+        WHERE "state" IN ('done', 'rejected')
+        AND mtime <= (NOW() - interval %s);
+        """),
+    REQUEUE=dedent("""\
+        UPDATE {schema}.{tablename}
+            SET state = 'queued'
+        WHERE message_id IN %s;
+        """)
+))

@@ -10,7 +10,7 @@ from urllib.parse import (
 from psycopg2 import DatabaseError, OperationalError
 from psycopg2.extensions import (
     ISOLATION_LEVEL_AUTOCOMMIT,
-    quote_ident,
+    quote_ident as pq_quote_ident,
 )
 from psycopg2.pool import ThreadedConnectionPool
 import tenacity
@@ -68,6 +68,11 @@ def make_pool(url, maxconn=16):
     return pool
 
 
+def quote_ident(raw):
+    # Quote an SQL identifier, free from a connection object.
+    return '"%s"' % raw.replace('"', '""')
+
+
 @contextmanager
 def transaction(conn_or_pool, listen=None):
     # Manage the connection, transaction and cursor from a connection pool.
@@ -80,7 +85,7 @@ def transaction(conn_or_pool, listen=None):
     if listen:
         # This is for NOTIFY consistency, according to psycopg2 doc.
         conn.set_isolation_level(ISOLATION_LEVEL_AUTOCOMMIT)
-        channel = quote_ident(listen, conn)
+        channel = pq_quote_ident(listen, conn)
 
     try:
         with conn:  # Wraps in a transaction.
@@ -101,3 +106,21 @@ def wait_for_notifies(conn, timeout=1):
         logger.debug("Received %d Postgres notifies.", len(conn.notifies))
         conn.notifies[:] = []
     return notifies
+
+
+class QueryManager:
+    def __init__(self, queries, schema="dramatiq", table="queue"):
+        self.queries = queries
+        self.schema = schema
+        self.table = table
+        self.build_queries(schema, table)
+
+    def build_queries(self, schema, table):
+        if not (schema or table):
+            return
+
+        for name, sql in self.queries.items():
+            setattr(self, name, sql.format(
+                schema=quote_ident(schema or self.schema),
+                tablename=quote_ident(table or self.table),
+            ))

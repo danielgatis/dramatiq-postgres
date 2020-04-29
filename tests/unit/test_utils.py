@@ -29,3 +29,11 @@ def test_make_pool(mocker):
     tp.assert_called_with(0, 10, "postgresql://host/")
     assert 4 == pool.minconn
     tp.reset_mock()
+
+
+def test_quote_ident():
+    from dramatiq_pg.utils import quote_ident
+
+    assert '"table"' == quote_ident("table")
+    assert '"with space"' == quote_ident("with space")
+    assert '"with""quote"' == quote_ident("with\"quote")

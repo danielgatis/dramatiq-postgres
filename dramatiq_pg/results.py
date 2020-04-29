@@ -12,14 +12,14 @@ from textwrap import dedent
 from dramatiq.results import ResultBackend, ResultMissing, ResultTimeout
 from psycopg2.extras import Json
 
-from .utils import make_pool, transaction, wait_for_notifies
+from .utils import make_pool, transaction, wait_for_notifies, QueryManager
 
 
 logger = logging.getLogger(__name__)
 
 
 class PostgresBackend(ResultBackend):
-    def __init__(self, *, url=None, pool=None, **kw):
+    def __init__(self, *, url=None, pool=None, schema=None, table=None, **kw):
         super().__init__(**kw)
 
         if url:
@@ -27,6 +27,8 @@ class PostgresBackend(ResultBackend):
         else:
             # Receive a pool object to have an I/O less __init__.
             self.pool = pool
+
+        QUERIES.build_queries(schema, table)
 
     def build_message_key(self, message):
         # Just use message_id, it's UNIQUE in table.
@@ -40,11 +42,7 @@ class PostgresBackend(ResultBackend):
         channel = f'dramatiq.{key}.results'
         with transaction(self.pool, listen=channel) as curs:
             # First, search result in table.
-            curs.execute(dedent("""\
-            SELECT result
-              FROM dramatiq.queue
-             WHERE message_id = %s AND result IS NOT NULL;
-            """), (key,))
+            curs.execute(QUERIES.GET, (key,))
             if curs.rowcount:
                 result, = curs.fetchone()
                 return result
@@ -64,21 +62,31 @@ class PostgresBackend(ResultBackend):
     def _store(self, key, result, ttl):
         with transaction(self.pool) as curs:
             logger.debug("Storing result for %s.", key)
-            curs.execute(dedent("""\
-            WITH stored AS (
-              INSERT INTO dramatiq.queue
-                          (queue_name, message_id, "state", result, result_ttl)
-                   VALUES ('__RQ__', %s, 'done',
-                           %s, (NOW() AT TIME ZONE 'UTC') + interval %s)
-              ON CONFLICT (message_id)
-                DO UPDATE SET mtime = (NOW() AT TIME ZONE 'UTC'),
-                              result = EXCLUDED.result,
-                              result_ttl = EXCLUDED.result_ttl
-                RETURNING queue_name, message_id, result
-            )
-            SELECT
-              pg_notify('dramatiq.' || message_id || '.results', result::text)
-            FROM stored;
-            """), (key, Json(result), f"{ttl} ms",))
+            curs.execute(QUERIES.STORE, (key, Json(result), f"{ttl} ms",))
             if 0 == curs.rowcount:
                 raise Exception(f"Can't store result of message {key}.")
+
+
+QUERIES = QueryManager(dict(
+    GET=dedent("""\
+    SELECT result
+        FROM {schema}.{tablename}
+        WHERE message_id = %s AND result IS NOT NULL;
+    """),
+    STORE=dedent("""\
+    WITH stored AS (
+        INSERT INTO {schema}.{tablename}
+                    (queue_name, message_id, "state", result, result_ttl)
+            VALUES ('__RQ__', %s, 'done',
+                    %s, (NOW() AT TIME ZONE 'UTC') + interval %s)
+        ON CONFLICT (message_id)
+        DO UPDATE SET mtime = (NOW() AT TIME ZONE 'UTC'),
+                        result = EXCLUDED.result,
+                        result_ttl = EXCLUDED.result_ttl
+        RETURNING queue_name, message_id, result
+    )
+    SELECT
+        pg_notify('dramatiq.' || message_id || '.results', result::text)
+    FROM stored;
+    """),
+))
