@@ -98,6 +98,9 @@ def make_argument_parser():
     subparser = subparsers.add_parser('flush')
     subparser.set_defaults(command=flush_command)
 
+    subparser = subparsers.add_parser('init')
+    subparser.set_defaults(command=init_command)
+
     subparser = subparsers.add_parser('purge')
     subparser.set_defaults(command=purge_command)
     subparser.add_argument(
@@ -142,6 +145,17 @@ def recover_command(args):
         curs.execute(QUERIES.RECOVER, (args.recover_minage,))
         recovered = curs.rowcount
     logger.info("Recovered %s messages.", recovered)
+
+
+def init_command(args):
+    path = os.path.dirname(__file__) + '/schema.sql'
+    with transaction(args.pool) as curs, open(path) as fo:
+        curs.execute(''.join(
+            line
+            for line in fo
+            if not line.startswith('\\')
+        ))
+    logger.info("Initialized database.")
 
 
 def stats_command(args):

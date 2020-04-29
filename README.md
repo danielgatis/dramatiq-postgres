@@ -27,10 +27,11 @@ assumptions for recovering after a crash.
   $ pip install dramatiq-pg psycopg2-binary
   ```
   Ensure you have either psycopg2 or psycopg2-binary installed.
-- Apply dramatiq\_pg/schema.sql file in your database:
+- Init database schema with `init` command.
   ``` console
-  $ psql -f dramatiq_pg/schema.sql
+  $ dramatiq-pg init
   ```
+  Or adapt `dramatiq-pg/schema.sql` to your needs.
 - Before importing actors, define global broker with a connection
   pool:
   ``` python

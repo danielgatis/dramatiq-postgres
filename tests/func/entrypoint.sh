@@ -35,6 +35,6 @@ poetry install
 poetry run flake8 dramatiq_pg/ tests/
 poetry run make -C docs/ check
 poetry run pytest -x tests/unit/
-poetry run tests/pypsql < dramatiq_pg/schema.sql
+poetry run dramatiq-pg init
 poetry run tests/pypsql < tests/func/schema.sql
 poetry run pytest -x tests/func/

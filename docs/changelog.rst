@@ -5,6 +5,7 @@ Next version
 ------------
 
 - Allow to customize schema and table names.
+- Provide ``dramatiq-pg init`` helper command.
 
 
 Version 0.8.0
