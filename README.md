@@ -60,6 +60,14 @@ is hosted on GitLab and give you more details on deployment and operation of
 Postgres as a Dramatiq broker.
 
 
+## Integration
+
+**Django** : Use
+[django-dramatiq-pg](https://github.com/uptick/django-dramatiq-pg/) by [Curtis
+Maloney](https://gitlab.com/FunkyBob). It includes configuration, ORM model and
+database migration.
+
+
 ## Support
 
 If you encounter a bug or miss a feature, please [open an issue on
