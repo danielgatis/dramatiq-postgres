@@ -3,7 +3,7 @@
 \set state 'state'
 \set queue 'queue'
 
-CREATE SCHEMA :"schema";
+CREATE SCHEMA IF NOT EXISTS :"schema";
 
 CREATE TYPE :"schema".:"state" AS ENUM (
   'queued',
