@@ -1,8 +1,10 @@
 Dramatiq-pg Changelog
 =====================
 
-Next version
-------------
+Version 0.9.0
+-------------
+
+Released 2020-10-02.
 
 - Allow to customize schema and table names.
 - Provide ``dramatiq-pg init`` helper command.
