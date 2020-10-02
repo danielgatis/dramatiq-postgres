@@ -14,6 +14,7 @@ from dramatiq.cli import (
 
 from .broker import purge, QUERIES as BROKER_QUERIES
 from .utils import make_pool, transaction, QueryManager
+from .schema import generate_init_sql
 
 
 logger = logging.getLogger(__name__)
@@ -148,13 +149,8 @@ def recover_command(args):
 
 
 def init_command(args):
-    path = os.path.dirname(__file__) + '/schema.sql'
-    with transaction(args.pool) as curs, open(path) as fo:
-        curs.execute(''.join(
-            line
-            for line in fo
-            if not line.startswith('\\')
-        ))
+    with transaction(args.pool) as curs:
+        curs.execute(generate_init_sql())
     logger.info("Initialized database.")
 
 
