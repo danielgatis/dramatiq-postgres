@@ -27,9 +27,6 @@ from queue import Queue
 from textwrap import dedent
 from time import sleep
 from threading import Barrier
-from warnings import filterwarnings
-
-filterwarnings("ignore", message="The psycopg2 wheel package will be renamed")  # noqa
 
 import dramatiq
 import dramatiq_pg

@@ -27,7 +27,7 @@ class Listener(object):
         self.conn = psycopg2.connect("")
         self.conn.set_isolation_level(ISOLATION_LEVEL_AUTOCOMMIT)
         self.cursor = self.conn.cursor()
-        self.cursor.execute(f'LISTEN "dramatiq.default.ack";')
+        self.cursor.execute('LISTEN "dramatiq.default.ack";')
         self.notifies = self.conn.notifies  # Useful for debugging.
 
     def __exit__(self, *_):
