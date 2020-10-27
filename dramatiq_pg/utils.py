@@ -25,7 +25,9 @@ class ConnectionClosed(DatabaseError):
 
 
 retry_pg = tenacity.retry(
-    retry=tenacity.retry_if_exception_type(OperationalError),
+    retry=tenacity.retry_if_exception_type(
+      (OperationalError, ConnectionClosed),
+    ),
     reraise=True,
     wait=tenacity.wait_random_exponential(multiplier=1, max=30),
     stop=tenacity.stop_after_attempt(10),
