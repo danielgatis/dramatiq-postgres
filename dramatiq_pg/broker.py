@@ -326,7 +326,10 @@ QUERIES = QueryManager(dict(
             (queue_name, message_id, "state", message)
             VALUES (%s, %s, 'queued', %s)
             ON CONFLICT (message_id)
-                DO UPDATE SET "state" = 'queued', message = EXCLUDED.message
+                DO UPDATE SET
+                    "state" = 'queued',
+                    message = EXCLUDED.message,
+                    queue_name = EXCLUDED.queue_name
             RETURNING queue_name, message
         )
         SELECT

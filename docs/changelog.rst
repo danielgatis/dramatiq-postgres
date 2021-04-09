@@ -1,6 +1,12 @@
 Dramatiq-pg Changelog
 =====================
 
+Next version
+------------
+
+- Fix retrying of message with Retries middleware. Reported by `@liveFreeOrCode`_.
+
+
 Version 0.9.0
 -------------
 
@@ -102,4 +108,5 @@ Released 2019-02-22.
 -  Added func tests.
 
 .. _@CaselIT: https://gitlab.com/CaselIT
+.. _@liveFreeOrCode: https://gitlab.com/liveFreeOrCode
 .. _@rouge8: https://gitlab.com/rouge8
