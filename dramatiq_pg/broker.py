@@ -164,6 +164,7 @@ class PostgresConsumer(Consumer):
         with transaction(self.pool) as curs:
             channel = f"dramatiq.{message.queue_name}.ack"
             payload = Json(message.asdict())
+            self.unlock_q.put_nowait(message.message_id)
             logger.debug(
                 "Notifying %s for ACK %s.", channel, message.message_id)
             # dramatiq always ack a message, even if it has been requeued by
@@ -172,7 +173,6 @@ class PostgresConsumer(Consumer):
             curs.execute(
                 QUERIES.ACK,
                 (payload, message.message_id, channel))
-            self.unlock_q.put_nowait(message.message_id)
         self.in_processing -= 1
 
     def auto_purge(self):
@@ -249,13 +249,13 @@ class PostgresConsumer(Consumer):
         with transaction(self.pool) as curs:
             # Use the same channel as ack. Actually means done.
             channel = f"dramatiq.{message.queue_name}.ack"
+            self.unlock_q.put_nowait(message.message_id)
             logger.debug(
                 "Notifying %s for NACK %s.", channel, message.message_id)
             payload = Json(message.asdict())
             curs.execute(
                 QUERIES.NACK,
                 (payload, message.message_id, channel))
-            self.unlock_q.put_nowait(message.message_id)
         self.in_processing -= 1
 
     def fetch_pending_notifies(self):
