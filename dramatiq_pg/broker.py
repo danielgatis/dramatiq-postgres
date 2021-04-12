@@ -264,10 +264,11 @@ class PostgresConsumer(Consumer):
         # We may have received a notify between LISTEN and SELECT of pending
         # messages. That's not a problem because we are able to skip spurious
         # notifies.
+        channel = f"dramatiq.{self.queue_name}.enqueue"
         with transaction(conn) as curs:
             curs.execute(QUERIES.FETCH_PENDING, (self.queue_name,))
             return [
-                Notify(pid=0, channel=None, payload=r[0])
+                Notify(pid=0, channel=channel, payload=r[0])
                 for r in curs
             ]
 
