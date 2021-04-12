@@ -222,12 +222,9 @@ class PostgresConsumer(Consumer):
         # This is for NOTIFY consistency, according to psycopg2 doc.
         conn.set_isolation_level(ISOLATION_LEVEL_AUTOCOMMIT)
         channel = quote_ident(f"dramatiq.{self.queue_name}.enqueue", conn)
-        dq = dq_name(self.queue_name)
-        dchannel = quote_ident(f"dramatiq.{dq}.enqueue", conn)
         with conn.cursor() as curs:
-            logger.debug(
-                "Listening on channels %s, %s.", channel, dchannel)
-            curs.execute(f"LISTEN {channel}; LISTEN {dchannel};")
+            logger.debug("Listening on channel %s.", channel)
+            curs.execute(f"LISTEN {channel};")
         return self._listen_conn
 
     def consume_one(self, message):
