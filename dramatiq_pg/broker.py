@@ -172,7 +172,7 @@ class PostgresConsumer(Consumer):
             # `consumed`.
             curs.execute(
                 QUERIES.ACK,
-                (payload, message.message_id, channel))
+                (payload, message.message_id, message.queue_name, channel))
         self.in_processing -= 1
 
     def auto_purge(self):
@@ -252,7 +252,7 @@ class PostgresConsumer(Consumer):
             payload = Json(message.asdict())
             curs.execute(
                 QUERIES.NACK,
-                (payload, message.message_id, channel))
+                (payload, message.message_id, message.queue_name, channel))
         self.in_processing -= 1
 
     def fetch_pending_notifies(self):
@@ -307,6 +307,7 @@ QUERIES = QueryManager(dict(
             UPDATE {schema}.{tablename}
                 SET "state" = 'done', message = %s
             WHERE message_id = %s
+                AND queue_name = %s
                 AND state = 'consumed'
             RETURNING message
         )
@@ -349,6 +350,7 @@ QUERIES = QueryManager(dict(
             UPDATE {schema}.{tablename}
                 SET "state" = 'rejected', message = %s
             WHERE message_id = %s
+                AND queue_name = %s
                 AND state <> 'rejected'
             RETURNING message
         )
