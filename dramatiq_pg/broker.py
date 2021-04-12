@@ -106,7 +106,7 @@ class PostgresConsumer(Consumer):
         self.queue_name = queue_name
         self.timeout = timeout // 1000
         self.unlock_q = Queue()
-        self.in_processing = 0
+        self.in_processing = set()
         self.prefetch = prefetch
         self.misses = 0
 
@@ -120,13 +120,14 @@ class PostgresConsumer(Consumer):
             logger.debug(
                 "Found %s pending messages in queue %s.",
                 len(self.notifies), self.queue_name)
-        #
-        if self.in_processing >= self.prefetch:
+
+        processing = len(self.in_processing)
+        if processing >= self.prefetch:
             # Wait and don't consume the message, other worker will be faster
             self.misses, backoff_ms = compute_backoff(self.misses,
                                                       max_backoff=1000)
             logger.debug(f"Too many messages in processing:"
-                         f" {self.in_processing}"
+                         f" {processing}"
                          f" sleeping {backoff_ms}")
             time.sleep(backoff_ms / 1000)
             return None
@@ -148,7 +149,7 @@ class PostgresConsumer(Consumer):
             message = Message(**payload)
             mid = message.message_id
             if self.consume_one(message):
-                self.in_processing += 1
+                self.in_processing.add(message.message_id)
                 return MessageProxy(message)
             else:
                 logger.debug("Message %s already consumed. Skipping.", mid)
@@ -257,6 +258,7 @@ class PostgresConsumer(Consumer):
         self.in_processing -= 1
 
     def fetch_pending_notifies(self):
+        logger.debug("Polling for lost messages in %s.", self.queue_name)
         # Get or open connection.
         conn = self.get_listen_conn()
         # We may have received a notify between LISTEN and SELECT of pending
