@@ -126,3 +126,7 @@ class QueryManager:
                 schema=quote_ident(schema or self.schema),
                 tablename=quote_ident(table or self.table),
             ))
+
+    # Tell pytype/pyright this class has dynamic attributes.
+    def __getattr__(self, name):
+        raise AttributeError(name)
