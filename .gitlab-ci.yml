@@ -4,7 +4,7 @@ stages:
 
 lint:
   stage: test
-  image: dalibo/labs-sdk:bullseye
+  image: dalibo/buildpack-python:bullseye
   script:
   - poetry install
   - poetry run flake8 dramatiq_pg/ tests/
