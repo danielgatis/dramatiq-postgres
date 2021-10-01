@@ -224,6 +224,8 @@ class PostgresConsumer(Consumer):
                 return check_conn(self._listen_conn)
             except ConnectionError:
                 logger.info("Connection closed. Reconnecting...")
+                self.pool.putconn(self._listen_conn)
+                self._listen_conn = None
 
         self._listen_conn = conn = getconn(self.pool)
         # This is for NOTIFY consistency, according to psycopg2 doc.
