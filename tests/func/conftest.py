@@ -6,14 +6,10 @@ from subprocess import Popen
 from select import select
 from shutil import copyfileobj
 from time import sleep
-from warnings import filterwarnings
 
 import pytest
 import psycopg2
 from psycopg2.extensions import ISOLATION_LEVEL_AUTOCOMMIT
-
-
-filterwarnings("ignore", message="The psycopg2 wheel package will be renamed")
 
 
 class Listener(object):
