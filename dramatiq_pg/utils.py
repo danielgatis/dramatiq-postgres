@@ -64,6 +64,12 @@ def make_pool(url, maxconn=16):
     parts = urlparse(url)
     qs = dict(parse_qsl(parts.query))
     qs.setdefault('application_name', 'dramatiq-pg')
+    qs.setdefault('keepalives', '1')
+    qs.setdefault('keepalives_count', '2')
+    qs.setdefault('keepalives_idle', '5')
+    qs.setdefault('keepalives_interval', '2')
+    if __libpq_version__ >= 120000:
+        qs.setdefault('tcp_user_timeout', '10000')
     maxconn = int(qs.pop('maxconn', maxconn))
     minconn = int(qs.pop('minconn', maxconn))  # Default to maxconn.
     parts = parts._replace(query=urlencode(qs))

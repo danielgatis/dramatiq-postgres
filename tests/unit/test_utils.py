@@ -3,27 +3,23 @@ def test_make_pool(mocker):
     from dramatiq_pg.utils import make_pool
 
     pool = make_pool("")
-    tp.assert_called_with(0, 16, "")
-    assert 16 == pool.minconn
-    tp.reset_mock()
-
-    pool = make_pool("")
-    tp.assert_called_with(0, 16, "")
     assert 16 == pool.minconn
     tp.reset_mock()
 
     pool = make_pool("dbname=toto")
-    tp.assert_called_with(0, 16, "dbname=toto")
+    call = tp.mock_calls[0]
+    assert "dbname=toto" in call[1][2]
     assert 16 == pool.minconn
     tp.reset_mock()
 
     pool = make_pool("postgresql:///?minconn=4")
-    tp.assert_called_with(0, 16, "postgresql:///")
+    call = tp.mock_calls[0]
+    assert "minconn" not in call[1][2]
     assert 4 == pool.minconn
     tp.reset_mock()
 
     pool = make_pool("postgresql://host/?minconn=4&maxconn=10")
-    tp.assert_called_with(0, 10, "postgresql://host/")
+    assert "maxconn" not in call[1][2]
     assert 4 == pool.minconn
     tp.reset_mock()
 
