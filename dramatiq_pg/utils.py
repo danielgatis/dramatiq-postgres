@@ -68,8 +68,10 @@ def make_pool(url, maxconn=16):
     minconn = int(qs.pop('minconn', maxconn))  # Default to maxconn.
     parts = parts._replace(query=urlencode(qs))
     connstring = parts.geturl()
+    if connstring.startswith("?"):
+        connstring = 'postgresql:///' + connstring
     if ":/?" in connstring or connstring.endswith(':/'):
-        # geturl replaces :/// with :/. libpq does not accept that.
+        # geturl replaces :/ with :///. libpq does not accept that.
         connstring = connstring.replace(':/', ':///')
     pool = ThreadedConnectionPool(0, maxconn, connstring)
     pool.minconn = minconn
