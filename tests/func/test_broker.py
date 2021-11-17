@@ -103,6 +103,27 @@ def test_delay(listener, pgconn, worker):
     assert delayed_delta.total_seconds() > 1
 
 
+def test_reconnect(listener, pgconn, worker):
+    # First, kill all other connexions.
+    with pgconn() as curs:
+        curs.execute("""
+        SELECT pg_terminate_backend(pid)
+        FROM pg_stat_activity
+        WHERE datid IS NOT NULL AND pid <> pg_backend_pid();
+        """)
+
+    # Start listening for ack.
+    with listener:
+        message = writer.send(
+            randint(1, 10),
+            message="Message after kill.",
+        )
+        message  # This is for pytest to dump message UUID in error logs.
+
+        # Wait for *count* ack from workers.
+        listener.wait(1, timeout=30)
+
+
 def test_crash(listener, worker):
     with listener:
         with worker.open_log() as fo:

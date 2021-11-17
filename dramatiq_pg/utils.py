@@ -1,7 +1,7 @@
 import functools
 import logging
 import select
-from contextlib import contextmanager
+from contextlib import contextmanager, ExitStack
 from urllib.parse import (
     parse_qsl,
     urlencode,
@@ -9,8 +9,10 @@ from urllib.parse import (
 )
 
 from dramatiq.errors import ConnectionError
-from psycopg2 import OperationalError
-from psycopg2.errors import AdminShutdown
+from psycopg2 import __libpq_version__
+from psycopg2 import InterfaceError, OperationalError
+from psycopg2.pool import PoolError
+from psycopg2.errors import AdminShutdown, DatabaseError
 from psycopg2.extensions import (
     ISOLATION_LEVEL_AUTOCOMMIT,
     quote_ident as pq_quote_ident,
@@ -22,9 +24,16 @@ import tenacity
 logger = logging.getLogger(__name__)
 
 
+DISCONNECT_ERRORS = (
+    AdminShutdown,
+    InterfaceError,
+    OperationalError,
+)
+
+
 retry_pg = tenacity.retry(
     retry=tenacity.retry_if_exception_type(
-      (OperationalError, ConnectionError),
+        DISCONNECT_ERRORS + (ConnectionError, DatabaseError,)
     ),
     reraise=True,
     wait=tenacity.wait_random_exponential(multiplier=1, max=30),
@@ -36,12 +45,11 @@ retry_pg = tenacity.retry(
 def check_conn(conn):
     try:
         conn.poll()
-    except (AdminShutdown, OperationalError) as e:
+    except DISCONNECT_ERRORS as e:
         if not conn.closed:
             logger.debug("Closing connexion due to error: %s", e)
             try:
                 conn.close()
-                pass
             except Exception as close_e:
                 logger.debug("Failed to close connexion: %s", close_e)
         raise ConnectionError(str(e)) from None
@@ -85,6 +93,39 @@ def make_pool(url, maxconn=16):
     return pool
 
 
+@contextmanager
+def pool_sanitizer(pool):
+    # When a connection is broken, other connection in the pool are likely
+    # broken as well. This context manager walk unused connection in the pool
+    # to check their health and immediatly clean unusable connections. This
+    # avoid exhausting retry attempts by looping on broken connections in the
+    # pool.
+
+    try:
+        yield pool
+    except DISCONNECT_ERRORS:
+        for _ in range(pool.minconn):
+            try:
+                conn = pool.getconn()
+            except PoolError:
+                # Pool exhausted. Other connection will be handled by their
+                # holder.
+                break
+
+            # Pen test connection with an explicit query.
+            try:
+                with conn.cursor() as cur:
+                    cur.execute("SELECT 'dramatiq-pg conn test'")
+            except DISCONNECT_ERRORS as e:
+                logger.debug("Bad connection detected: %s", e)
+                if not conn.closed:
+                    conn.close()
+            pool.putconn(conn)
+
+        # Re raise original error for business or retry logic.
+        raise
+
+
 def raise_connection_error(fn):
     # Raises Dramatiq connection error on Psycopg2 error
 
@@ -107,25 +148,24 @@ def quote_ident(raw):
 def transaction(conn_or_pool, listen=None):
     # Manage the connection, transaction and cursor from a connection pool.
     new_conn = hasattr(conn_or_pool, 'getconn')
-    if new_conn:
-        conn = getconn(conn_or_pool)
-    else:
-        conn = conn_or_pool
+    with ExitStack() as defer:
+        if new_conn:
+            defer.enter_context(pool_sanitizer(conn_or_pool))
+            conn = getconn(conn_or_pool)
+            defer.callback(conn_or_pool.putconn, conn)
+        else:
+            conn = conn_or_pool
 
-    if listen:
-        # This is for NOTIFY consistency, according to psycopg2 doc.
-        conn.set_isolation_level(ISOLATION_LEVEL_AUTOCOMMIT)
+        if listen:
+            # This is for NOTIFY consistency, according to psycopg2 doc.
+            conn.set_isolation_level(ISOLATION_LEVEL_AUTOCOMMIT)
 
-    try:
         with conn:  # Wraps in a transaction.
             with conn.cursor() as curs:
                 if listen:
                     channel = pq_quote_ident(listen, conn)
                     curs.execute(f"LISTEN {channel};")
                 yield curs
-    finally:
-        if new_conn:
-            conn_or_pool.putconn(conn)
 
 
 def wait_for_notifies(conn, timeout=1):
