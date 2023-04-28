@@ -11,9 +11,9 @@ keywords = ["postgres", "task queue", "dramatiq"]
 include = ["dramatiq-pg/schema.sql"]
 
 [tool.poetry.dependencies]
-python = "^3.5"
+python = "^3.6"
 dramatiq = "^1.5"
-tenacity = ">=5.1.1"
+tenacity = "^8"
 
 [tool.poetry.dev-dependencies]
 flake8 = "^3.7"
