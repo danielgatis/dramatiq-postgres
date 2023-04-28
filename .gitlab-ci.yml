@@ -13,7 +13,7 @@ lint:
 
 tests:
   stage: test
-  image: circleci/python:3.7-stretch
+  image: dalibo/buildpack-python:bullseye
   services:
   - postgres:11-alpine
   variables:

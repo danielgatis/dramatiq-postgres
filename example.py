@@ -103,7 +103,7 @@ def main():
         writer.send_with_options(args=('delayed',), delay=d)
 
     rejecting.send()
-    message.get_result(block=True, timeout=10_000)
+    message.get_result(block=True, timeout=20_000)
     logger.debug("Got result from %s.", message.message_id)
 
 
