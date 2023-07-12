@@ -26,7 +26,7 @@
 #
 #     python example.py
 
-
+import json
 import logging
 import os
 import pdb
@@ -109,6 +109,9 @@ def main():
         d = random.randint(4, 10) * 1000
         writer.send_with_options(args=("delayed",), delay=d)
 
+    long_message = writer.send(long="a" * 7810)
+    assert len(json.dumps(json.loads(long_message.encode()))) >= 8000
+    writer.send("very", long="message" * 8000)
     rejecting.send()
     message.get_result(block=True, timeout=20_000)
     logger.debug("Got result from %s.", message.message_id)

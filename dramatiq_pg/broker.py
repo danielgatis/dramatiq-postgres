@@ -1,3 +1,4 @@
+import json
 import logging
 import time
 from hashlib import sha256
@@ -87,7 +88,12 @@ class PostgresBroker(Broker):
         q = message.queue_name
         insert = (
             QUERIES.ENQUEUE,
-            (q, message.message_id, Json(tidy4json(message))),
+            (
+                q,
+                message.message_id,
+                Json(tidy4json(message)),
+                message.message_id,
+            ),
         )
 
         logger.debug("Upserting %s in queue %s.", message.message_id, q)
@@ -152,7 +158,14 @@ class PostgresConsumer(Consumer):
         # If we have some notifies, loop to find one todo.
         while self.notifies:
             notify = self.notifies.pop(0)
-            message = Message.decode(notify.payload.encode("utf-8"))
+            if "kwargs" in notify.payload:
+                full_payload = notify.payload
+            else:
+                truncated_payload = json.loads(notify.payload)
+                full_payload = self.fetch_by_id(
+                    truncated_payload["message_id"]
+                )
+            message = Message.decode(full_payload.encode("utf-8"))
             if self.consume_one(message):
                 self.in_processing.add(message.message_id)
                 return MessageProxy(message)
@@ -189,6 +202,7 @@ class PostgresConsumer(Consumer):
                     message.message_id,
                     message.queue_name,
                     channel,
+                    message.message_id,
                 ),
             )
         self.in_processing.remove(message.message_id)
@@ -285,9 +299,23 @@ class PostgresConsumer(Consumer):
                     message.message_id,
                     message.queue_name,
                     channel,
+                    message.message_id,
                 ),
             )
         self.in_processing.remove(message.message_id)
+
+    @raise_connection_error
+    def fetch_by_id(self, message_id):
+        logger.debug(
+            "Retrieving truncated message %s in %s.",
+            message_id,
+            self.queue_name,
+        )
+        # Get or open connection.
+        conn = self.get_consume_conn()
+        with transaction(conn) as curs:
+            curs.execute(QUERIES.FETCH_BY_ID, (message_id,))
+            return curs.fetchone()[0]
 
     @raise_connection_error
     def fetch_pending_notifies(self):
@@ -375,7 +403,12 @@ QUERIES = QueryManager(
             RETURNING message
         )
         SELECT
-            pg_notify(%s, message::text)
+            pg_notify(%s,
+                CASE WHEN octet_length(message::text) >= 8000
+                THEN jsonb_build_object('message_id', %s)::text
+                ELSE message::text
+                END
+            )
         FROM updated;
         """
         ),
@@ -403,7 +436,12 @@ QUERIES = QueryManager(
             RETURNING queue_name, message
         )
         SELECT
-            pg_notify('dramatiq.' || queue_name || '.enqueue', message::text)
+            pg_notify('dramatiq.' || queue_name || '.enqueue',
+                CASE WHEN octet_length(message::text) >= 8000
+                THEN jsonb_build_object('message_id', %s)::text
+                ELSE message::text
+                END
+            )
         FROM enqueued;
         """
         ),  # noqa
@@ -413,6 +451,13 @@ QUERIES = QueryManager(
             FROM {schema}.{tablename}
             WHERE state IN ('queued', 'consumed')
             AND queue_name = %s;
+        """
+        ),
+        FETCH_BY_ID=dedent(
+            """\
+        SELECT message::text
+            FROM {schema}.{tablename}
+            WHERE message_id = %s;
         """
         ),
         NACK=dedent(
@@ -426,7 +471,12 @@ QUERIES = QueryManager(
             RETURNING message
         )
         SELECT
-            pg_notify(%s, message::text)
+            pg_notify(%s,
+                CASE WHEN octet_length(message::text) >= 8000
+                THEN jsonb_build_object('message_id', %s)::text
+                ELSE message::text
+                END
+            )
         FROM updated;
         """
         ),

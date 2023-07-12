@@ -1,6 +1,12 @@
 Dramatiq-pg Changelog
 =====================
 
+Unreleased
+----------
+
+- Workaround payloads bigger than 8Kb
+
+
 Version 0.11
 ------------
 
