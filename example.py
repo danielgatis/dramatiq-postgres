@@ -15,7 +15,12 @@
 #
 # To run workers:
 #
-#     SEED=xx dramatiq --watch . --verbose -p 2 -t 2 example
+#     SEED=xx dramatiq --verbose -p 2 -t 2 example
+#
+# You can add `--watch .` in the above dramatiq command to prevent you from
+# manually restarting when modifying files, but it may also cause dramatiq
+# to restart inappropriately, fetching messages from db instead of receiving
+# notification.
 #
 # To produce messages:
 #
