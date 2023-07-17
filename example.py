@@ -15,36 +15,43 @@
 #
 # To run workers:
 #
-#     SEED=xx dramatiq --watch . --verbose -p 2 -t 2 example
+#     SEED=xx dramatiq --verbose -p 2 -t 2 example
+#
+# You can add `--watch .` in the above dramatiq command to prevent you from
+# manually restarting when modifying files, but it may also cause dramatiq
+# to restart inappropriately, fetching messages from db instead of receiving
+# notification.
 #
 # To produce messages:
 #
 #     python example.py
 
-
+import json
 import logging
 import os
 import pdb
-import sys
 import random
+import sys
 import time
 
 import dramatiq.results
-import dramatiq_pg
 import psycopg2.pool
 from psycopg2.extras import Json
 
+import dramatiq_pg
 
 logger = logging.getLogger(__name__)
 # Empty connstring let's you configure psycogp2 using PG* env vars.
-pool = psycopg2.pool.ThreadedConnectionPool(16, 16, "application_name=dramatiq-pg")
+pool = psycopg2.pool.ThreadedConnectionPool(
+    16, 16, "application_name=dramatiq-pg"
+)
 # PostgresBroker accepts either pool= or url=. URL is a libpq connstring.
 # PostgresBroker creates a ThreadedConnectionPool from URL, swallowing minconn
 # and maxconn query argument.
 dramatiq.set_broker(dramatiq_pg.PostgresBroker(pool=pool))
 
 
-seed = int(os.environ.get('SEED', int(time.time())))
+seed = int(os.environ.get("SEED", int(time.time())))
 random.seed(seed)
 
 
@@ -65,7 +72,7 @@ def writer(*args, **kwargs):
     conn = pool.getconn()
     insert = (
         "INSERT INTO functest.witness (payload) VALUES (%s::jsonb);",
-        (Json(dict(args=args, kwargs=kwargs)),)
+        (Json(dict(args=args, kwargs=kwargs)),),
     )
     try:
         with conn:
@@ -94,23 +101,26 @@ def rejecting(message="Rejecting"):
 
 
 def main():
-    message = saver.send(wait=random.randint(0, 10), message='Saved.')
+    message = saver.send(wait=random.randint(0, 10), message="Saved.")
     for _ in range(10):
         sleeper.send(2)
-        writer.send('toto', named='titi')
+        writer.send("toto", named="titi")
         failing.send(always=False)
         d = random.randint(4, 10) * 1000
-        writer.send_with_options(args=('delayed',), delay=d)
+        writer.send_with_options(args=("delayed",), delay=d)
 
+    long_message = writer.send(long="a" * 7810)
+    assert len(json.dumps(json.loads(long_message.encode()))) >= 8000
+    writer.send("very", long="message" * 8000)
     rejecting.send()
     message.get_result(block=True, timeout=20_000)
     logger.debug("Got result from %s.", message.message_id)
 
 
-if '__main__' == __name__:
+if "__main__" == __name__:
     logging.basicConfig(
         level=logging.DEBUG,
-        format='%(levelname)1.1s: %(message)s',
+        format="%(levelname)1.1s: %(message)s",
     )
     logger.info("Random seed is %s.", seed)
 
@@ -119,7 +129,7 @@ if '__main__' == __name__:
     except (pdb.bdb.BdbQuit, KeyboardInterrupt):
         logger.info("Interrupted.")
     except Exception:
-        logger.exception('Unhandled error:')
+        logger.exception("Unhandled error:")
         if sys.stdout.isatty():
             logger.debug("Dropping in debugger.")
             pdb.post_mortem(sys.exc_info()[2])

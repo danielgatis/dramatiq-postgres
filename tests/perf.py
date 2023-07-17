@@ -25,14 +25,14 @@ from contextlib import contextmanager
 from datetime import datetime, timedelta
 from queue import Queue
 from textwrap import dedent
-from time import sleep
 from threading import Barrier
+from time import sleep
 
 import dramatiq
-import dramatiq_pg
 import psycopg2.pool
-from dramatiq_pg.cli import transaction
 
+import dramatiq_pg
+from dramatiq_pg.cli import transaction
 
 logger = logging.getLogger(__name__)
 # Empty connstring let's you configure psycogp2 using PG* env vars.
@@ -75,7 +75,9 @@ def main(debug=True):
 
     logger.info(
         "Launching dramatiq worker with %s processes and %s threads.",
-        wprocesses, wthreads)
+        wprocesses,
+        wthreads,
+    )
     with worker(processes=wprocesses, threads=wthreads):
         logger.info("Processing messages for %ss.", countdown)
         logger.info("Emitting with %s threads.", ethreads)
@@ -86,22 +88,26 @@ def main(debug=True):
     # Count message sent / processed.
     with transaction() as curs:
         curs.execute("SELECT count(*) FROM dramatiq.queue")
-        sent, = curs.fetchone()
+        (sent,) = curs.fetchone()
 
-        curs.execute(dedent("""\
+        curs.execute(
+            dedent(
+                """\
         SELECT count(*) FROM dramatiq.queue WHERE state = 'done';
-        """))
-        done, = curs.fetchone()
+        """
+            )
+        )
+        (done,) = curs.fetchone()
 
-    csvname = csvsave('sender', [1, ethreads, sent, countdown])
+    csvname = csvsave("sender", [1, ethreads, sent, countdown])
     logger.info(
-        "Sent %s messages in %s. Saved in %s.",
-        sent, countdown, csvname)
+        "Sent %s messages in %s. Saved in %s.", sent, countdown, csvname
+    )
 
-    csvname = csvsave('worker', [wprocesses, wthreads, done, countdown])
+    csvname = csvsave("worker", [wprocesses, wthreads, done, countdown])
     logger.info(
-        "Processed %s messages in %ss. Saved in %s.",
-        done, countdown, csvname)
+        "Processed %s messages in %ss. Saved in %s.", done, countdown, csvname
+    )
 
 
 def emitter(b, q):
@@ -124,7 +130,7 @@ class Timer(object):
         self.delta = timedelta()
 
     def __repr__(self):
-        return '<%s %s>' % (self.__class__.__name__, self.delta)
+        return "<%s %s>" % (self.__class__.__name__, self.delta)
 
     def __enter__(self):
         self.start = datetime.utcnow()
@@ -178,13 +184,17 @@ class Fixedtime(object):
 def worker(processes=1, threads=4):
     # Manage the dramatiq worker process.
 
-    proc = subprocess.Popen([
-        "dramatiq",
-        "--processes", str(processes),
-        "--threads", str(threads),
-        "perf",
-    ])
-    sleep(.5)
+    proc = subprocess.Popen(
+        [
+            "dramatiq",
+            "--processes",
+            str(processes),
+            "--threads",
+            str(threads),
+            "perf",
+        ]
+    )
+    sleep(0.5)
     try:
         yield proc
     finally:
@@ -199,7 +209,8 @@ def emitter_main(threads=4, count=1000):
     # Manage emitter threads
 
     executor = ThreadPoolExecutor(
-        max_workers=threads, thread_name_prefix='emitter')
+        max_workers=threads, thread_name_prefix="emitter"
+    )
 
     # Prefill queue with count items.
     q = Queue(maxsize=count)
@@ -221,23 +232,23 @@ def emitter_main(threads=4, count=1000):
         raise
 
 
-CSVSUFFIX = datetime.utcnow().strftime('%Y%m%dT%H%M%S')
+CSVSUFFIX = datetime.utcnow().strftime("%Y%m%dT%H%M%S")
 
 
 def csvsave(name, row):
     # Helper to save metrics in CSV file for aggregation.
     fname = f"perf-{name}-{CSVSUFFIX}.csv"
-    with open(fname, mode='w') as fo:
+    with open(fname, mode="w") as fo:
         writer = csv.writer(fo)
         writer.writerow([name] + row)
     return fname
 
 
-if '__main__' == __name__:
-    debug = 'DEBUG' in os.environ
+if "__main__" == __name__:
+    debug = "DEBUG" in os.environ
     logging.basicConfig(
-        datefmt='%H:%M:%S',
-        format='%(asctime)s [%(threadName)s] %(levelname)1.1s: %(message)s',
+        datefmt="%H:%M:%S",
+        format="%(asctime)s [%(threadName)s] %(levelname)1.1s: %(message)s",
         level=logging.DEBUG if debug else logging.INFO,
     )
 
@@ -246,7 +257,7 @@ if '__main__' == __name__:
     except (pdb.bdb.BdbQuit, KeyboardInterrupt):
         logger.exception("Interrupted.")
     except Exception:
-        logger.exception('Unhandled error:')
+        logger.exception("Unhandled error:")
         if debug and sys.stdout.isatty():
             logger.debug("Dropping in debugger.")
             pdb.post_mortem(sys.exc_info()[2])

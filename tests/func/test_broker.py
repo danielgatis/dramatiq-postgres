@@ -5,12 +5,7 @@ from random import randint
 
 import pytest
 
-from example import (
-    failing,
-    rejecting,
-    writer,
-    sleeper,
-)
+from example import failing, rejecting, sleeper, writer
 
 
 @pytest.mark.timeout(12)
@@ -34,16 +29,18 @@ def test_massive(listener, pgconn, witness, worker):
     # Ensure the witness table has effectively been updated.
     with pgconn() as curs:
         curs.execute("SELECT count(*) FROM functest.witness;")
-        witness_count, = curs.fetchone()
+        (witness_count,) = curs.fetchone()
     assert count == witness_count
 
     time.sleep(2)  # allow some time for clearing the locks
 
     with pgconn() as curs:
-        curs.execute("""
+        curs.execute(
+            """
         SELECT count(*) FROM pg_catalog.pg_locks WHERE locktype = 'advisory';
-        """)
-        locks, = curs.fetchone()
+        """
+        )
+        (locks,) = curs.fetchone()
     assert locks == 0
 
 
@@ -72,8 +69,8 @@ def test_nack(listener, pgconn, witness):
 
     with pgconn() as curs:
         curs.execute("SELECT payload FROM functest.witness LIMIT 1;")
-        payload, = curs.fetchone()
-    assert 'Rejecting from func test.' == payload['kwargs']['message']
+        (payload,) = curs.fetchone()
+    assert "Rejecting from func test." == payload["kwargs"]["message"]
 
 
 @pytest.mark.timeout(8)
@@ -106,11 +103,13 @@ def test_delay(listener, pgconn, worker):
 def test_reconnect(listener, pgconn, worker):
     # First, kill all other connexions.
     with pgconn() as curs:
-        curs.execute("""
+        curs.execute(
+            """
         SELECT pg_terminate_backend(pid)
         FROM pg_stat_activity
         WHERE datid IS NOT NULL AND pid <> pg_backend_pid();
-        """)
+        """
+        )
 
     # Start listening for ack.
     with listener:
@@ -131,7 +130,7 @@ def test_crash(listener, worker):
             sleeper.send(1.5)
 
             # Watch log for message reception.
-            worker.watch_log(fo, 'Received message sleeper(1.5)')
+            worker.watch_log(fo, "Received message sleeper(1.5)")
 
         # Kill *all* dramatiq processes.
         worker.crash()

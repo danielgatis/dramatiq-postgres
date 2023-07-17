@@ -1,27 +1,18 @@
 import functools
-import logging
 import json
+import logging
 import select
-from contextlib import contextmanager, ExitStack
-from urllib.parse import (
-    parse_qsl,
-    urlencode,
-    urlparse,
-)
+from contextlib import ExitStack, contextmanager
+from urllib.parse import parse_qsl, urlencode, urlparse
 
+import tenacity
 from dramatiq import Message, MessageProxy, get_encoder
 from dramatiq.errors import ConnectionError
-from psycopg2 import __libpq_version__
-from psycopg2 import InterfaceError, OperationalError
-from psycopg2.pool import PoolError
+from psycopg2 import InterfaceError, OperationalError, __libpq_version__
 from psycopg2.errors import AdminShutdown, DatabaseError
-from psycopg2.extensions import (
-    ISOLATION_LEVEL_AUTOCOMMIT,
-    quote_ident as pq_quote_ident,
-)
-from psycopg2.pool import ThreadedConnectionPool
-import tenacity
-
+from psycopg2.extensions import ISOLATION_LEVEL_AUTOCOMMIT
+from psycopg2.extensions import quote_ident as pq_quote_ident
+from psycopg2.pool import PoolError, ThreadedConnectionPool
 
 logger = logging.getLogger(__name__)
 
@@ -35,7 +26,11 @@ DISCONNECT_ERRORS = (
 
 retry_pg = tenacity.retry(
     retry=tenacity.retry_if_exception_type(
-        DISCONNECT_ERRORS + (ConnectionError, DatabaseError,)
+        DISCONNECT_ERRORS
+        + (
+            ConnectionError,
+            DatabaseError,
+        )
     ),
     reraise=True,
     wait=tenacity.wait_random_exponential(multiplier=1, max=30),
@@ -74,22 +69,22 @@ def getconn(pool):
 def make_pool(url, maxconn=16):
     parts = urlparse(url)
     qs = dict(parse_qsl(parts.query))
-    qs.setdefault('application_name', 'dramatiq-pg')
-    qs.setdefault('keepalives', '1')
-    qs.setdefault('keepalives_count', '2')
-    qs.setdefault('keepalives_idle', '5')
-    qs.setdefault('keepalives_interval', '2')
+    qs.setdefault("application_name", "dramatiq-pg")
+    qs.setdefault("keepalives", "1")
+    qs.setdefault("keepalives_count", "2")
+    qs.setdefault("keepalives_idle", "5")
+    qs.setdefault("keepalives_interval", "2")
     if __libpq_version__ >= 120000:
-        qs.setdefault('tcp_user_timeout', '10000')
-    maxconn = int(qs.pop('maxconn', maxconn))
-    minconn = int(qs.pop('minconn', maxconn))  # Default to maxconn.
+        qs.setdefault("tcp_user_timeout", "10000")
+    maxconn = int(qs.pop("maxconn", maxconn))
+    minconn = int(qs.pop("minconn", maxconn))  # Default to maxconn.
     parts = parts._replace(query=urlencode(qs))
     connstring = parts.geturl()
     if connstring.startswith("?"):
-        connstring = 'postgresql:///' + connstring
-    if ":/?" in connstring or connstring.endswith(':/'):
+        connstring = "postgresql:///" + connstring
+    if ":/?" in connstring or connstring.endswith(":/"):
         # geturl replaces :/ with :///. libpq does not accept that.
-        connstring = connstring.replace(':/', ':///')
+        connstring = connstring.replace(":/", ":///")
     pool = ThreadedConnectionPool(0, maxconn, connstring)
     pool.minconn = minconn
     return pool
@@ -149,7 +144,7 @@ def quote_ident(raw):
 @contextmanager
 def transaction(conn_or_pool, listen=None):
     # Manage the connection, transaction and cursor from a connection pool.
-    new_conn = hasattr(conn_or_pool, 'getconn')
+    new_conn = hasattr(conn_or_pool, "getconn")
     with ExitStack() as defer:
         if new_conn:
             defer.enter_context(pool_sanitizer(conn_or_pool))
@@ -192,10 +187,14 @@ class QueryManager:
             return
 
         for name, sql in self.queries.items():
-            setattr(self, name, sql.format(
-                schema=quote_ident(schema or self.schema),
-                tablename=quote_ident(table or self.table),
-            ))
+            setattr(
+                self,
+                name,
+                sql.format(
+                    schema=quote_ident(schema or self.schema),
+                    tablename=quote_ident(table or self.table),
+                ),
+            )
 
     # Tell pytype/pyright this class has dynamic attributes.
     def __getattr__(self, name):
@@ -204,8 +203,10 @@ class QueryManager:
 
 def tidy4json(data):
     if isinstance(data, (Message, MessageProxy)):
+        # Translate python data into decoded json.
         # Encode message using Dramatiq encoder. But immediatly decode it as
         # standard json to send native json to PostgreSQL.
+        # e.g. date formating problem
         return json.loads(data.encode())
     else:
         return json.loads(get_encoder().encode(data))

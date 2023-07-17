@@ -5,24 +5,21 @@ import os
 import pdb
 import sys
 from distutils.util import strtobool
-from pkg_resources import get_distribution
 from textwrap import dedent
 
-from dramatiq.cli import (
-    LOGFORMAT,
-    VERBOSITY,
-)
+from dramatiq.cli import LOGFORMAT, VERBOSITY
+from pkg_resources import get_distribution
 
-from .broker import purge, QUERIES as BROKER_QUERIES
-from .utils import make_pool, transaction, QueryManager
+from .broker import QUERIES as BROKER_QUERIES
+from .broker import purge
 from .schema import generate_init_sql
-
+from .utils import QueryManager, make_pool, transaction
 
 logger = logging.getLogger(__name__)
 
 
 def entrypoint():
-    debug = strtobool(os.environ.get('DEBUG', 'n'))
+    debug = strtobool(os.environ.get("DEBUG", "n"))
     level = logging.DEBUG if debug else logging.INFO
     logging.basicConfig(level=level, format=LOGFORMAT)
 
@@ -31,7 +28,7 @@ def entrypoint():
     except (bdb.BdbQuit, KeyboardInterrupt):
         logger.info("Interrupted.")
     except Exception:
-        logger.exception('Unhandled error:')
+        logger.exception("Unhandled error:")
         if debug:
             pdb.post_mortem(sys.exc_info()[2])
         else:
@@ -49,7 +46,7 @@ def main():
 
     logging.getLogger().setLevel(VERBOSITY.get(args.verbose, logging.INFO))
 
-    if not hasattr(args, 'command'):
+    if not hasattr(args, "command"):
         logger.error("Missing command. See --help for usage.")
         return 1
 
@@ -70,7 +67,7 @@ def main():
 
 
 def make_argument_parser():
-    dist = get_distribution('dramatiq-pg')
+    dist = get_distribution("dramatiq-pg")
     parser = argparse.ArgumentParser(
         prog="dramatiq-pg",
         description="Maintainance utility for task-queue in Postgres.",
@@ -79,60 +76,79 @@ def make_argument_parser():
 
     parser.add_argument("--version", action="version", version=dist.version)
     parser.add_argument(
-        "--verbose", "-v", default=0, action="count",
+        "--verbose",
+        "-v",
+        default=0,
+        action="count",
         help="turn on verbose log output",
     )
     parser.add_argument(
-        "-d", "--dsn", "--connstring",
-        action="store", dest="url", default="",
-        metavar='CONNSTRING',
+        "-d",
+        "--dsn",
+        "--connstring",
+        action="store",
+        dest="url",
+        default="",
+        metavar="CONNSTRING",
         help="Postgres connection string.",
     )
     parser.add_argument(
         "--schemaname",
-        action="store", dest="schemaname", default='dramatiq',
+        action="store",
+        dest="schemaname",
+        default="dramatiq",
         metavar="SCHEMA",
         help=(
-            'Alternative database schema for Dramatiq-pg DDL.'
+            "Alternative database schema for Dramatiq-pg DDL."
             ' Default is "%(default)s".'
         ),
     )
     parser.add_argument(
         "--tablename",
-        action="store", dest="tablename", default='queue',
+        action="store",
+        dest="tablename",
+        default="queue",
         metavar="TABLE",
         help='Alternative table name for message. Default is "%(default)s".',
     )
 
     subparsers = parser.add_subparsers()
 
-    subparser = subparsers.add_parser('flush')
+    subparser = subparsers.add_parser("flush")
     subparser.set_defaults(command=flush_command)
 
-    subparser = subparsers.add_parser('init')
+    subparser = subparsers.add_parser("init")
     subparser.set_defaults(command=init_command)
 
-    subparser = subparsers.add_parser('purge')
+    subparser = subparsers.add_parser("purge")
     subparser.set_defaults(command=purge_command)
     subparser.add_argument(
-        '--maxage', dest='purge_maxage', default='30 days',
-        help=dedent("""\
+        "--maxage",
+        dest="purge_maxage",
+        default="30 days",
+        help=dedent(
+            """\
         Max age of done/rejected message to keep in queue. Format is Postgres
         interval. Default is %(default)r.
-        """)
+        """
+        ),
     )
 
-    subparser = subparsers.add_parser('recover')
+    subparser = subparsers.add_parser("recover")
     subparser.set_defaults(command=recover_command)
     subparser.add_argument(
-        '--minage', dest='recover_minage', default='1 min',
-        help=dedent("""\
+        "--minage",
+        dest="recover_minage",
+        default="1 min",
+        help=dedent(
+            """\
         Max age of consumed message to requere. Format is Postgres
         interval. Default is %(default)r.
-        """)
+        """
+        ),
     )
 
-    subparser = subparsers.add_parser('stats')
+    subparser = subparsers.add_parser("stats")
     subparser.set_defaults(command=stats_command)
 
     return parser
@@ -169,28 +185,36 @@ def stats_command(args):
         curs.execute(QUERIES.STATS)
         stats = dict(curs.fetchall())
 
-    for state in 'queued', 'consumed', 'done', 'rejected':
-        print(f'{state}: {stats.get(state, 0)}')
+    for state in "queued", "consumed", "done", "rejected":
+        print(f"{state}: {stats.get(state, 0)}")
 
 
-QUERIES = QueryManager(dict(
-    RECOVER=dedent("""\
+QUERIES = QueryManager(
+    dict(
+        RECOVER=dedent(
+            """\
     UPDATE {schema}.{tablename}
     SET state = 'queued'
     WHERE state = 'consumed'
         AND mtime < (NOW() AT TIME ZONE 'UTC') - interval %s;
-    """),
-    STATS=dedent("""\
+    """
+        ),
+        STATS=dedent(
+            """\
     SELECT "state", count(1)
     FROM {schema}.{tablename}
     GROUP BY "state";
-    """),
-    FLUSH=dedent("""\
+    """
+        ),
+        FLUSH=dedent(
+            """\
     DELETE FROM {schema}.{tablename}
     WHERE "state" IN ('queued', 'consumed');
-    """),
-))
+    """
+        ),
+    )
+)
 
 
-if '__main__' == __name__:
+if "__main__" == __name__:
     entrypoint()

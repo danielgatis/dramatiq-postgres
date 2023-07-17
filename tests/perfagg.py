@@ -21,8 +21,10 @@ def main():
     logger.info("Rates unit is message per seconds.")
     print("role;proc;threads;mean_rate;median_rate;variance")
     for role, nproc, nthreads, s in aggregate_lines(lines):
-        print(f"{role};{nproc};{nthreads};"
-              f"{s['mean']:.1f};{s['median']:.1f};{s['variance']:.1f}")
+        print(
+            f"{role};{nproc};{nthreads};"
+            f"{s['mean']:.1f};{s['median']:.1f};{s['variance']:.1f}"
+        )
 
 
 def aggregate_lines(lines):
@@ -50,14 +52,14 @@ def aggregate_lines(lines):
 
 def iter_lines(csv_names):
     for name in csv_names:
-        with open(name, 'r') as fo:
+        with open(name, "r") as fo:
             yield from csv.reader(fo)
 
 
-if '__main__' == __name__:
-    debug = 'DEBUG' in os.environ
+if "__main__" == __name__:
+    debug = "DEBUG" in os.environ
     logging.basicConfig(
-        format='%(levelname)1.1s: %(message)s',
+        format="%(levelname)1.1s: %(message)s",
         level=logging.DEBUG if debug else logging.INFO,
     )
 
@@ -66,7 +68,7 @@ if '__main__' == __name__:
     except (pdb.bdb.BdbQuit, KeyboardInterrupt):
         logger.exception("Interrupted.")
     except Exception:
-        logger.exception('Unhandled error:')
+        logger.exception("Unhandled error:")
         if debug and sys.stdout.isatty():
             logger.debug("Dropping in debugger.")
             pdb.post_mortem(sys.exc_info()[2])

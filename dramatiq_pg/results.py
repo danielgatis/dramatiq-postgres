@@ -12,10 +12,13 @@ from dramatiq.results import ResultBackend, ResultMissing, ResultTimeout
 from psycopg2.extras import Json
 
 from .utils import (
-    make_pool, tidy4json, transaction, retry_pg, wait_for_notifies,
     QueryManager,
+    make_pool,
+    retry_pg,
+    tidy4json,
+    transaction,
+    wait_for_notifies,
 )
-
 
 logger = logging.getLogger(__name__)
 
@@ -42,12 +45,12 @@ class PostgresBackend(ResultBackend):
 
         # Ensure a timeout is set.
         timeout = (timeout or 300_000) // 1000
-        channel = f'dramatiq.{key}.results'
+        channel = f"dramatiq.{key}.results"
         with transaction(self.pool, listen=channel) as curs:
             # First, search result in table.
             curs.execute(QUERIES.GET, (key,))
             if curs.rowcount:
-                result, = curs.fetchone()
+                (result,) = curs.fetchone()
                 return result
             elif not block:
                 raise ResultMissing(message)
@@ -58,28 +61,37 @@ class PostgresBackend(ResultBackend):
 
         if not notifies:
             raise ResultTimeout(message)
-        notify, = notifies
+        (notify,) = notifies
         # Don't query database, use NOTIFY payload.
-        return self.encoder.decode(notify.payload.encode('utf-8'))
+        return self.encoder.decode(notify.payload.encode("utf-8"))
 
     @retry_pg
     def _store(self, key, result, ttl):
         with transaction(self.pool) as curs:
             logger.debug("Storing result for %s.", key)
-            curs.execute(QUERIES.STORE, (
-                key, Json(tidy4json(result)), f"{ttl} ms",
-            ))
+            curs.execute(
+                QUERIES.STORE,
+                (
+                    key,
+                    Json(tidy4json(result)),
+                    f"{ttl} ms",
+                ),
+            )
             if 0 == curs.rowcount:
                 raise Exception(f"Can't store result of message {key}.")
 
 
-QUERIES = QueryManager(dict(
-    GET=dedent("""\
+QUERIES = QueryManager(
+    dict(
+        GET=dedent(
+            """\
     SELECT result
         FROM {schema}.{tablename}
         WHERE message_id = %s AND result IS NOT NULL;
-    """),
-    STORE=dedent("""\
+    """
+        ),
+        STORE=dedent(
+            """\
     WITH stored AS (
         INSERT INTO {schema}.{tablename}
                     (queue_name, message_id, "state", result, result_ttl)
@@ -94,5 +106,7 @@ QUERIES = QueryManager(dict(
     SELECT
         pg_notify('dramatiq.' || message_id || '.results', result::text)
     FROM stored;
-    """),
-))
+    """
+        ),
+    )
+)
