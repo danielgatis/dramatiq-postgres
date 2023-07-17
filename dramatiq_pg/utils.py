@@ -203,8 +203,10 @@ class QueryManager:
 
 def tidy4json(data):
     if isinstance(data, (Message, MessageProxy)):
+        # Translate python data into decoded json.
         # Encode message using Dramatiq encoder. But immediatly decode it as
         # standard json to send native json to PostgreSQL.
+        # e.g. date formating problem
         return json.loads(data.encode())
     else:
         return json.loads(get_encoder().encode(data))
