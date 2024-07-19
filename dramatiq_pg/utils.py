@@ -3,7 +3,7 @@ import json
 import logging
 import select
 from contextlib import ExitStack, contextmanager
-from urllib.parse import parse_qsl, urlencode, urlparse
+from urllib.parse import parse_qsl, urlparse
 
 import tenacity
 from dramatiq import Message, MessageProxy, get_encoder
@@ -67,25 +67,28 @@ def getconn(pool):
 
 @retry_pg
 def make_pool(url, maxconn=16):
-    parts = urlparse(url)
-    qs = dict(parse_qsl(parts.query))
-    qs.setdefault("application_name", "dramatiq-pg")
-    qs.setdefault("keepalives", "1")
-    qs.setdefault("keepalives_count", "2")
-    qs.setdefault("keepalives_idle", "5")
-    qs.setdefault("keepalives_interval", "2")
+    if isinstance(url, str):
+        parts = urlparse(url)
+        kwargs = dict(parse_qsl(parts.query))
+        parts = parts._replace(query="")
+        conninfo = parts.geturl()
+    else:
+        conninfo = ""
+        kwargs = dict(url)
+
+    kwargs.setdefault("application_name", "dramatiq-pg")
+    kwargs.setdefault("keepalives", "1")
+    kwargs.setdefault("keepalives_count", "2")
+    kwargs.setdefault("keepalives_idle", "5")
+    kwargs.setdefault("keepalives_interval", "2")
+
     if __libpq_version__ >= 120000:
-        qs.setdefault("tcp_user_timeout", "10000")
-    maxconn = int(qs.pop("maxconn", maxconn))
-    minconn = int(qs.pop("minconn", maxconn))  # Default to maxconn.
-    parts = parts._replace(query=urlencode(qs))
-    connstring = parts.geturl()
-    if connstring.startswith("?"):
-        connstring = "postgresql:///" + connstring
-    if ":/?" in connstring or connstring.endswith(":/"):
-        # geturl replaces :/ with :///. libpq does not accept that.
-        connstring = connstring.replace(":/", ":///")
-    pool = ThreadedConnectionPool(0, maxconn, connstring)
+        kwargs.setdefault("tcp_user_timeout", "10000")
+
+    maxconn = int(kwargs.pop("maxconn", maxconn))
+    minconn = int(kwargs.pop("minconn", maxconn))  # Default to maxconn.
+
+    pool = ThreadedConnectionPool(0, maxconn, conninfo, **kwargs)
     pool.minconn = minconn
     return pool
 

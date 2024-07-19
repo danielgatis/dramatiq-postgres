@@ -19,9 +19,15 @@ def test_make_pool(mocker):
     tp.reset_mock()
 
     pool = make_pool("postgresql://host/?minconn=4&maxconn=10")
+    call = tp.mock_calls[0]
     assert "maxconn" not in call[1][2]
     assert 4 == pool.minconn
     tp.reset_mock()
+
+    pool = make_pool({"host": "hostname"})
+    call = tp.mock_calls[0]
+    assert "host" in call.kwargs
+    assert call.kwargs["host"] == "hostname"
 
 
 def test_quote_ident():
