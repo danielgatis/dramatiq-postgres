@@ -59,7 +59,7 @@ def main():
         logger.error("Failed to connect: %s.", e)
         return 1
 
-    kw = dict(schema=args.schemaname, table=args.tablename)
+    kw = dict(schema=args.schemaname, prefix=args.prefix)
     BROKER_QUERIES.build_queries(**kw)
     QUERIES.build_queries(**kw)
 
@@ -104,12 +104,12 @@ def make_argument_parser():
         ),
     )
     parser.add_argument(
-        "--tablename",
+        "--prefix",
         action="store",
-        dest="tablename",
-        default="queue",
-        metavar="TABLE",
-        help='Alternative table name for message. Default is "%(default)s".',
+        dest="prefix",
+        default="",
+        metavar="PREFIX",
+        help='Prefix for table name for message. Default is "%(default)s".',
     )
 
     subparsers = parser.add_subparsers()
@@ -176,7 +176,7 @@ def recover_command(args):
 
 def init_command(args):
     with transaction(args.pool) as curs:
-        curs.execute(generate_init_sql())
+        curs.execute(generate_init_sql(args.schemaname, args.prefix))
     logger.info("Initialized database.")
 
 

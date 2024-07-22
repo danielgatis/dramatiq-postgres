@@ -2,3 +2,4 @@ dist/
 *.egg-info/
 .pyre*
 .watchmanconfig
+__pycache__

@@ -4,13 +4,17 @@ from .utils import quote_ident
 
 
 def process_psql_lines(raw_lines, schema, prefix):
+    schema = quote_ident(schema)
+    tablename = quote_ident(prefix + "queue")
+    statename = quote_ident(prefix + "state")
+
     for line in raw_lines:
         if line.startswith("\\"):
             continue
         yield (
-            line.replace(':"schema"', quote_ident(schema))
-            .replace(':"state"', quote_ident(prefix + "state"))
-            .replace(':"queue"', quote_ident(prefix + "queue"))
+            line.replace(':"schema"', schema)
+            .replace(':"state"', statename)
+            .replace(':"queue"', tablename)
         )
 
 

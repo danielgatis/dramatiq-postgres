@@ -176,14 +176,14 @@ def wait_for_notifies(conn, timeout=1):
 
 
 class QueryManager:
-    def __init__(self, queries, schema="dramatiq", table="queue"):
+    def __init__(self, queries, schema="dramatiq", prefix=""):
         self.queries = queries
         self.schema = schema
-        self.table = table
-        self.build_queries(schema, table)
+        self.prefix = prefix
+        self.build_queries(schema, prefix)
 
-    def build_queries(self, schema=None, table=None):
-        if not (schema or table):
+    def build_queries(self, schema=None, prefix=None):
+        if not (schema or prefix):
             return
 
         for name, sql in self.queries.items():
@@ -191,8 +191,8 @@ class QueryManager:
                 self,
                 name,
                 sql.format(
-                    schema=quote_ident(schema or self.schema),
-                    tablename=quote_ident(table or self.table),
+                    schema=quote_ident(schema),
+                    tablename=quote_ident(prefix + "queue"),
                 ),
             )
 
