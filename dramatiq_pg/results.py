@@ -55,9 +55,9 @@ class PostgresBackend(ResultBackend):
             elif not block:
                 raise ResultMissing(message)
 
-        # From here, we are in blocking mode.
-        logger.debug("Waiting for result of %s.", key)
-        notifies = wait_for_notifies(curs.connection, timeout=timeout)
+            # From here, we are in blocking mode.
+            logger.debug("Waiting for result of %s.", key)
+            notifies = wait_for_notifies(curs.connection, timeout=timeout)
 
         if not notifies:
             raise ResultTimeout(message)

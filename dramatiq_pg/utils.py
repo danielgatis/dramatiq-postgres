@@ -2,7 +2,7 @@ import functools
 import json
 import logging
 import select
-from contextlib import ExitStack, contextmanager
+from contextlib import ExitStack, contextmanager, nullcontext
 from urllib.parse import parse_qsl, urlparse
 
 import tenacity
@@ -112,10 +112,14 @@ def pool_sanitizer(pool):
                 # holder.
                 break
 
-            # Pen test connection with an explicit query.
+            # The following statement serves 2 purposes:
+            # 1. Removes all subscriptions in case they were somehow leaked to
+            # the pool (they shouldn't be since `unlisten_all` is used to clear
+            # subscriptions).
+            # 2. Checks if the connection is still alive.
             try:
                 with conn.cursor() as cur:
-                    cur.execute("SELECT 'dramatiq-pg conn test'")
+                    cur.execute("UNLISTEN *")
             except DISCONNECT_ERRORS as e:
                 logger.debug("Bad connection detected: %s", e)
                 if not conn.closed:
@@ -144,6 +148,16 @@ def quote_ident(raw):
     return '"%s"' % raw.replace('"', '""')
 
 
+def unlisten_all(conn):
+    if not conn.closed:
+        conn.notifies = []
+        try:
+            cur = conn.cursor()
+            cur.execute("UNLISTEN *")
+        except DISCONNECT_ERRORS:
+            pass
+
+
 @contextmanager
 def transaction(conn_or_pool, listen=None):
     # Manage the connection, transaction and cursor from a connection pool.
@@ -159,12 +173,16 @@ def transaction(conn_or_pool, listen=None):
         if listen:
             # This is for NOTIFY consistency, according to psycopg2 doc.
             conn.set_isolation_level(ISOLATION_LEVEL_AUTOCOMMIT)
+            maybe_transaction_context = nullcontext()
+        else:
+            maybe_transaction_context = conn
 
-        with conn:  # Wraps in a transaction.
+        with maybe_transaction_context:
             with conn.cursor() as curs:
                 if listen:
                     channel = pq_quote_ident(listen, conn)
                     curs.execute(f"LISTEN {channel};")
+                    defer.callback(unlisten_all, conn)
                 yield curs
 
 
