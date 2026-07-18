@@ -30,16 +30,16 @@ from threading import Barrier
 from time import sleep
 
 import dramatiq
-import psycopg2.pool
+from psycopg_pool import ConnectionPool
 
 import dramatiq_postgres
 from dramatiq_postgres.cli import transaction
 
 logger = logging.getLogger(__name__)
-# Empty connstring let's you configure psycogp2 using PG* env vars.
-pool = psycopg2.pool.ThreadedConnectionPool(0, 16, "")
+# Empty connstring let's you configure psycopg using PG* env vars.
+pool = ConnectionPool("", min_size=0, max_size=16, open=True)
 # PostgresBroker accepts either pool= or url=. URL is a libpq connstring.
-# PostgresBroker creates a ThreadedConnectionPool from URL, swallowing minconn
+# PostgresBroker creates a ConnectionPool from URL, swallowing minconn
 # and maxconn query argument.
 dramatiq.set_broker(dramatiq_postgres.PostgresBroker(pool=pool))
 

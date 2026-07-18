@@ -15,6 +15,10 @@ def django_project():
     import django
     from django.conf import settings
 
+    # django.setup() replaces the global broker (apps.ready calls
+    # set_broker), remember the current one to restore it on teardown.
+    previous_broker = dramatiq.get_broker()
+
     settings.configure(
         INSTALLED_APPS=["dramatiq_postgres.django"],
         DATABASES={
@@ -35,6 +39,7 @@ def django_project():
     django.setup()
     yield settings
     dramatiq.get_broker().close()
+    dramatiq.set_broker(previous_broker)
     # PostgresBroker(schema=None) keeps the last built queries, so reset
     # the globals polluted by the custom schema before other modules run.
     from dramatiq_postgres import broker, results

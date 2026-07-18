@@ -10,9 +10,8 @@ from dramatiq.common import current_millis, dq_name
 from dramatiq.errors import BrokerConnectionError as ConnectionError
 from dramatiq.message import Message
 from dramatiq.results import Results
-from psycopg2.extensions import ISOLATION_LEVEL_AUTOCOMMIT
-from psycopg2.extensions import quote_ident as pq_quote_ident
-from psycopg2.extras import Json
+from psycopg import sql
+from psycopg.types.json import Json
 
 from .results import PostgresBackend
 from .utils import (
@@ -24,7 +23,6 @@ from .utils import (
     retry_pg,
     tidy4json,
     transaction,
-    wait_for_notifies,
 )
 
 logger = logging.getLogger(__name__)
@@ -81,12 +79,16 @@ class Notifier(threading.Thread):
     def run(self):
         while not self.stopping.is_set():
             try:
-                self.ensure_conn()
-                for notify in wait_for_notifies(self.conn, timeout=2):
+                conn = self.ensure_conn()
+                for notify in conn.notifies(timeout=2):
                     with self.lock:
-                        events = self.subscriptions.get(notify.channel, ())
-                        for event in set(events):
-                            event.set()
+                        events = set(
+                            self.subscriptions.get(notify.channel, ())
+                        )
+                    for event in events:
+                        event.set()
+                    if self.stopping.is_set() or self.dirty.is_set():
+                        break
             except Exception as e:
                 logger.debug("Notifier connection error: %s. Retrying.", e)
                 self.drop_conn()
@@ -95,12 +97,11 @@ class Notifier(threading.Thread):
 
     def ensure_conn(self):
         if self.conn is not None and not self.dirty.is_set():
-            check_conn(self.conn)
-            return
+            return check_conn(self.conn)
 
         if self.conn is None:
             self.conn = getconn(self.pool)
-            self.conn.set_isolation_level(ISOLATION_LEVEL_AUTOCOMMIT)
+            self.conn.autocommit = True
 
         self.dirty.clear()
         with self.lock:
@@ -108,14 +109,19 @@ class Notifier(threading.Thread):
         with self.conn.cursor() as curs:
             curs.execute("UNLISTEN *;")
             for channel in channels:
-                curs.execute(f"LISTEN {pq_quote_ident(channel, self.conn)};")
+                curs.execute(
+                    sql.SQL("LISTEN {};").format(sql.Identifier(channel))
+                )
         logger.debug("Notifier listening on %s.", channels)
+        return self.conn
 
     def drop_conn(self):
         if self.conn is None:
             return
         try:
-            self.pool.putconn(self.conn, close=True)
+            # A closed connection is discarded by the pool and replaced.
+            self.conn.close()
+            self.pool.putconn(self.conn)
         except Exception:
             pass
         self.conn = None
@@ -143,6 +149,7 @@ class PostgresBroker(Broker):
         if pool and url:
             raise ValueError("You can't set both pool and URL!")
 
+        self._owns_pool = not pool
         if not pool:
             self.pool = make_pool(url)
         else:
@@ -180,6 +187,8 @@ class PostgresBroker(Broker):
     def close(self):
         if self.notifier is not None:
             self.notifier.stop()
+        if self._owns_pool:
+            self.pool.close()
 
     def consume(self, queue_name, prefetch=1, timeout=30000):
         return PostgresConsumer(
@@ -401,9 +410,7 @@ class PostgresConsumer(Consumer):
 
         logger.debug("Batch update of messages for requeue.")
         with transaction(self.get_consume_conn()) as curs:
-            curs.execute(
-                QUERIES.REQUEUE, (tuple(m.message_id for m in messages),)
-            )
+            curs.execute(QUERIES.REQUEUE, ([m.message_id for m in messages],))
 
 
 QUERIES = QueryManager(
@@ -419,7 +426,7 @@ QUERIES = QueryManager(
         SELECT
             pg_notify(%s,
                 CASE WHEN octet_length(message::text) >= 8000
-                THEN jsonb_build_object('message_id', %s)::text
+                THEN jsonb_build_object('message_id', %s::text)::text
                 ELSE message::text
                 END
             )
@@ -493,7 +500,7 @@ QUERIES = QueryManager(
         SELECT
             pg_notify(%s,
                 CASE WHEN octet_length(message::text) >= 8000
-                THEN jsonb_build_object('message_id', %s)::text
+                THEN jsonb_build_object('message_id', %s::text)::text
                 ELSE message::text
                 END
             )
@@ -503,7 +510,7 @@ QUERIES = QueryManager(
         UPDATE {schema}.{tablename}
             SET "state" = 'queued', worker_id = NULL,
                 consumed_at = NULL, mtime = NOW()
-        WHERE message_id IN %s AND "state" = 'consumed';
+        WHERE message_id = ANY(%s::uuid[]) AND "state" = 'consumed';
         """),
         HEARTBEAT=dedent("""\
         INSERT INTO {schema}.{workertable} (worker_id, heartbeat_at)
@@ -537,7 +544,7 @@ QUERIES = QueryManager(
         PURGE=dedent("""\
         DELETE FROM {schema}.{tablename}
         WHERE "state" = 'rejected'
-        AND mtime <= (NOW() - interval %s);
+        AND mtime <= (NOW() - %s::interval);
         """),
     )
 )

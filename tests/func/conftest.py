@@ -1,15 +1,13 @@
 import os
 import signal
 import sys
-from contextlib import closing, contextmanager
-from select import select
+from contextlib import contextmanager
 from shutil import copyfileobj
 from subprocess import Popen
 from time import sleep
 
-import psycopg2
+import psycopg
 import pytest
-from psycopg2.extensions import ISOLATION_LEVEL_AUTOCOMMIT
 
 
 class Listener(object):
@@ -17,46 +15,33 @@ class Listener(object):
         pass
 
     def __init__(self):
-        self.conn = self.cursor = None
+        self.conn = None
 
     def __enter__(self):
-        self.conn = psycopg2.connect("")
-        self.conn.set_isolation_level(ISOLATION_LEVEL_AUTOCOMMIT)
-        self.cursor = self.conn.cursor()
-        self.cursor.execute('LISTEN "dramatiq.default.ack";')
-        self.notifies = self.conn.notifies  # Useful for debugging.
+        self.conn = psycopg.connect("", autocommit=True)
+        self.conn.execute('LISTEN "dramatiq.default.ack";')
 
     def __exit__(self, *_):
-        assert self.conn is not None and self.cursor is not None
-        self.cursor.close()
+        assert self.conn is not None
         self.conn.close()
-        self.conn = self.cursor = None
+        self.conn = None
 
     def wait(self, count=1, timeout=8):
         assert self.conn is not None
-        self.conn.notifies[:] = []
-        self.conn.poll()
-        select_timeout = min(2, timeout)
-        while len(self.conn.notifies) < count:
-            if timeout <= 0:
-                raise self.Timeout("Timeout")
-            rlist, *_ = select([self.conn], [], [], select_timeout)
-            if not rlist:
-                timeout -= select_timeout
-                continue  # Loop on timeout
-            self.conn.poll()
-
-        return self.conn.notifies.copy()
+        # Notifications received since LISTEN are queued in the connection
+        # backlog and count as well.
+        notifies = list(self.conn.notifies(timeout=timeout, stop_after=count))
+        if len(notifies) < count:
+            raise self.Timeout("Timeout")
+        return notifies
 
 
 @contextmanager
 def pgconn_manager():
-    conn = psycopg2.connect("")
-    with closing(conn):
-        with conn:
-            curs = conn.cursor()
-            with closing(curs):
-                yield curs
+    # Commits on success, rolls back on error, then closes.
+    with psycopg.connect("") as conn:
+        with conn.cursor() as curs:
+            yield curs
 
 
 def truncate(table):

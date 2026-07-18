@@ -49,7 +49,7 @@ def pytest_configure(config):
     _postgres_container = PostgresContainer("postgres:16-alpine")
     _postgres_container.start()
 
-    # Configure environment variables for psycopg2
+    # Configure environment variables for psycopg
     os.environ["PGHOST"] = _postgres_container.get_container_host_ip()
     os.environ["PGPORT"] = str(_postgres_container.get_exposed_port(5432))
     os.environ["PGUSER"] = _postgres_container.username
@@ -57,10 +57,9 @@ def pytest_configure(config):
     os.environ["PGDATABASE"] = _postgres_container.dbname
 
     # Initialize dramatiq-postgres and functest schemas
-    import psycopg2
+    import psycopg
 
-    conn = psycopg2.connect("")
-    conn.autocommit = True
+    conn = psycopg.connect("", autocommit=True)
     with conn.cursor() as cur:
         # Load dramatiq-postgres schema
         schema_path = os.path.join(

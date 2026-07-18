@@ -12,7 +12,7 @@ import logging
 from textwrap import dedent
 
 from dramatiq.results import ResultBackend, ResultMissing, ResultTimeout
-from psycopg2.extras import Json
+from psycopg.types.json import Json
 
 from .utils import (
     QueryManager,
@@ -106,7 +106,7 @@ QUERIES = QueryManager(
         STORE=dedent("""\
     WITH stored AS (
         INSERT INTO {schema}.{resulttable} (message_id, "result", expires_at)
-            VALUES (%s, %s, NOW() + interval %s)
+            VALUES (%s, %s, NOW() + %s::interval)
         ON CONFLICT (message_id)
         DO UPDATE SET "result" = EXCLUDED."result",
                       expires_at = EXCLUDED.expires_at

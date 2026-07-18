@@ -36,18 +36,25 @@ import sys
 import time
 
 import dramatiq.results
-import psycopg2.pool
-from psycopg2.extras import Json
+from psycopg.types.json import Json
+from psycopg_pool import ConnectionPool
 
 import dramatiq_postgres
 
 logger = logging.getLogger(__name__)
-# Empty connstring let's you configure psycogp2 using PG* env vars.
-pool = psycopg2.pool.ThreadedConnectionPool(
-    16, 16, "application_name=dramatiq-postgres"
+# Empty connstring let's you configure psycopg using PG* env vars.
+# Connections open on demand: this module is imported by every dramatiq
+# worker process and by pytest itself, and an eager pool would exhaust
+# Postgres max_connections.
+pool = ConnectionPool(
+    "",
+    kwargs={"application_name": "dramatiq-postgres"},
+    min_size=0,
+    max_size=16,
+    open=True,
 )
 # PostgresBroker accepts either pool= or url=. URL is a libpq connstring.
-# PostgresBroker creates a ThreadedConnectionPool from URL, swallowing minconn
+# PostgresBroker creates a ConnectionPool from URL, swallowing minconn
 # and maxconn query argument.
 #
 # Timing knobs are read from env so func tests can speed up crash recovery.
@@ -83,18 +90,14 @@ def sleeper(param):
 
 @dramatiq.actor
 def writer(*args, **kwargs):
-    conn = pool.getconn()
     insert = (
         "INSERT INTO functest.witness (payload) VALUES (%s::jsonb);",
         (Json(dict(args=args, kwargs=kwargs)),),
     )
-    try:
-        with conn:
-            with conn.cursor() as curs:
-                logger.info("Inserting args in witness table.")
-                curs.execute(*insert)
-    finally:
-        pool.putconn(conn)
+    with pool.connection() as conn:
+        with conn.cursor() as curs:
+            logger.info("Inserting args in witness table.")
+            curs.execute(*insert)
 
 
 # Set minimal value for max_backoff to avoid waiting 30days when running func

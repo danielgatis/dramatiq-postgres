@@ -70,17 +70,20 @@ def main():
     args.pool = make_pool(args.url, maxconn=1)
 
     try:
-        with transaction(args.pool) as curs:
-            curs.connection.poll()
-    except Exception as e:
-        logger.error("Failed to connect: %s.", e)
-        return 1
+        try:
+            with transaction(args.pool) as curs:
+                curs.execute("SELECT 1;")
+        except Exception as e:
+            logger.error("Failed to connect: %s.", e)
+            return 1
 
-    kw = dict(schema=args.schemaname, prefix=args.prefix)
-    BROKER_QUERIES.build_queries(**kw)
-    QUERIES.build_queries(**kw)
+        kw = dict(schema=args.schemaname, prefix=args.prefix)
+        BROKER_QUERIES.build_queries(**kw)
+        QUERIES.build_queries(**kw)
 
-    return args.command(args)
+        return args.command(args)
+    finally:
+        args.pool.close()
 
 
 def make_argument_parser():
@@ -213,7 +216,7 @@ QUERIES = QueryManager(
     UPDATE {schema}.{tablename}
     SET state = 'queued', worker_id = NULL, consumed_at = NULL
     WHERE state = 'consumed'
-        AND mtime < NOW() - interval %s;
+        AND mtime < NOW() - %s::interval;
     """),
         STATS=dedent("""\
     SELECT "state", count(1)

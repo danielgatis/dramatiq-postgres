@@ -1,6 +1,6 @@
 [project]
 name = "dramatiq-postgres"
-version = "1.0.0"
+version = "2.0.0"
 description = "Postgres Broker for Dramatiq Task Queue"
 authors = [
     { name = "Daniel Gatis", email = "danielgatis@gmail.com" },
@@ -11,6 +11,7 @@ keywords = ["postgres", "task queue", "dramatiq"]
 requires-python = ">=3.10"
 dependencies = [
     "dramatiq>=2,<3",
+    "psycopg[pool]>=3.2,<4",
     "tenacity>=8,<10",
 ]
 
@@ -30,14 +31,13 @@ dev = [
     "black",
     "django>=4.2",
     "mypy>=2.3.0",
-    "psycopg2-binary",
+    "psycopg[binary]>=3.2,<4",
     "pytest>=9.0.3",
     "pytest-mock",
     "pytest-timeout",
     "ruff",
     "sh>=2.2.4",
     "testcontainers>=4,<5",
-    "types-psycopg2>=2.9.21.20260712",
 ]
 
 [build-system]

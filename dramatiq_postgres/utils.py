@@ -1,7 +1,6 @@
 import functools
 import json
 import logging
-import select
 from contextlib import ExitStack, contextmanager, nullcontext
 from typing import TYPE_CHECKING
 from urllib.parse import parse_qsl, urlparse
@@ -9,11 +8,9 @@ from urllib.parse import parse_qsl, urlparse
 import tenacity
 from dramatiq import Message, MessageProxy, get_encoder
 from dramatiq.errors import BrokerConnectionError as ConnectionError
-from psycopg2 import InterfaceError, OperationalError, __libpq_version__
-from psycopg2.errors import AdminShutdown, DatabaseError
-from psycopg2.extensions import ISOLATION_LEVEL_AUTOCOMMIT
-from psycopg2.extensions import quote_ident as pq_quote_ident
-from psycopg2.pool import PoolError, ThreadedConnectionPool
+from psycopg import InterfaceError, OperationalError, pq, sql
+from psycopg.errors import AdminShutdown, DatabaseError
+from psycopg_pool import ConnectionPool, PoolClosed
 
 logger = logging.getLogger(__name__)
 
@@ -24,14 +21,18 @@ DISCONNECT_ERRORS = (
     OperationalError,
 )
 
+_RETRY_ERRORS = DISCONNECT_ERRORS + (
+    ConnectionError,
+    DatabaseError,
+)
+
 
 retry_pg = tenacity.retry(
-    retry=tenacity.retry_if_exception_type(
-        DISCONNECT_ERRORS
-        + (
-            ConnectionError,
-            DatabaseError,
-        )
+    # A closed pool means the broker was shut down on purpose: fail fast
+    # instead of retrying.
+    retry=tenacity.retry_if_exception(
+        lambda e: isinstance(e, _RETRY_ERRORS)
+        and not isinstance(e, PoolClosed)
     ),
     reraise=True,
     wait=tenacity.wait_random_exponential(multiplier=1, max=30),
@@ -42,7 +43,10 @@ retry_pg = tenacity.retry(
 
 def check_conn(conn):
     try:
-        conn.poll()
+        # Reads pending input without a server round trip, erroring out if
+        # the socket is dead. Received notifications land in the backlog
+        # served by conn.notifies().
+        conn.pgconn.consume_input()
     except DISCONNECT_ERRORS as e:
         if not conn.closed:
             logger.debug("Closing connexion due to error: %s", e)
@@ -61,12 +65,12 @@ def getconn(pool):
     try:
         check_conn(conn)
     except ConnectionError:
+        # check_conn closed it; the pool discards it and opens a fresh one.
         pool.putconn(conn)
         raise  # Let tenacity control retry.
     return conn
 
 
-@retry_pg
 def make_pool(url, maxconn=16):
     if isinstance(url, str):
         parts = urlparse(url)
@@ -83,56 +87,26 @@ def make_pool(url, maxconn=16):
     kwargs.setdefault("keepalives_idle", "5")
     kwargs.setdefault("keepalives_interval", "2")
 
-    if __libpq_version__ >= 120000:
+    if pq.version() >= 120000:
         kwargs.setdefault("tcp_user_timeout", "10000")
 
     maxconn = int(kwargs.pop("maxconn", maxconn))
-    minconn = int(kwargs.pop("minconn", maxconn))  # Default to maxconn.
+    # Open connections on demand only, none upfront.
+    minconn = int(kwargs.pop("minconn", 0))
 
-    pool = ThreadedConnectionPool(0, maxconn, conninfo, **kwargs)
-    pool.minconn = minconn
-    return pool
-
-
-@contextmanager
-def pool_sanitizer(pool):
-    # When a connection is broken, other connection in the pool are likely
-    # broken as well. This context manager walk unused connection in the pool
-    # to check their health and immediatly clean unusable connections. This
-    # avoid exhausting retry attempts by looping on broken connections in the
-    # pool.
-
-    try:
-        yield pool
-    except DISCONNECT_ERRORS:
-        for _ in range(pool.minconn):
-            try:
-                conn = pool.getconn()
-            except PoolError:
-                # Pool exhausted. Other connection will be handled by their
-                # holder.
-                break
-
-            # The following statement serves 2 purposes:
-            # 1. Removes all subscriptions in case they were somehow leaked to
-            # the pool (they shouldn't be since `unlisten_all` is used to clear
-            # subscriptions).
-            # 2. Checks if the connection is still alive.
-            try:
-                with conn.cursor() as cur:
-                    cur.execute("UNLISTEN *")
-            except DISCONNECT_ERRORS as e:
-                logger.debug("Bad connection detected: %s", e)
-                if not conn.closed:
-                    conn.close()
-            pool.putconn(conn)
-
-        # Re raise original error for business or retry logic.
-        raise
+    return ConnectionPool(
+        conninfo,
+        kwargs=kwargs,
+        min_size=minconn,
+        max_size=maxconn,
+        open=True,
+        # Broken connections are verified and replaced on checkout.
+        check=ConnectionPool.check_connection,
+    )
 
 
 def raise_connection_error(fn):
-    # Raises Dramatiq connection error on Psycopg2 error
+    # Raises Dramatiq connection error on psycopg error
 
     @functools.wraps(fn)
     def wrapper(*a, **kw):
@@ -150,13 +124,17 @@ def quote_ident(raw):
 
 
 def unlisten_all(conn):
-    if not conn.closed:
-        conn.notifies = []
-        try:
-            cur = conn.cursor()
-            cur.execute("UNLISTEN *")
-        except DISCONNECT_ERRORS:
+    # Clear subscriptions, pending notifications and autocommit before the
+    # connection goes back to the pool.
+    if conn.closed:
+        return
+    try:
+        conn.execute("UNLISTEN *;")
+        for _ in conn.notifies(timeout=0):
             pass
+        conn.autocommit = False
+    except DISCONNECT_ERRORS:
+        pass
 
 
 @contextmanager
@@ -165,35 +143,34 @@ def transaction(conn_or_pool, listen=None):
     new_conn = hasattr(conn_or_pool, "getconn")
     with ExitStack() as defer:
         if new_conn:
-            defer.enter_context(pool_sanitizer(conn_or_pool))
             conn = getconn(conn_or_pool)
             defer.callback(conn_or_pool.putconn, conn)
         else:
             conn = conn_or_pool
 
         if listen:
-            # This is for NOTIFY consistency, according to psycopg2 doc.
-            conn.set_isolation_level(ISOLATION_LEVEL_AUTOCOMMIT)
+            # This is for NOTIFY consistency, according to psycopg doc.
+            conn.autocommit = True
             maybe_transaction_context = nullcontext()
         else:
-            maybe_transaction_context = conn
+            maybe_transaction_context = conn.transaction()
 
         with maybe_transaction_context:
             with conn.cursor() as curs:
                 if listen:
-                    channel = pq_quote_ident(listen, conn)
-                    curs.execute(f"LISTEN {channel};")
                     defer.callback(unlisten_all, conn)
+                    curs.execute(
+                        sql.SQL("LISTEN {};").format(sql.Identifier(listen))
+                    )
                 yield curs
 
 
 def wait_for_notifies(conn, timeout=1):
-    rlist, *_ = select.select([conn], [], [], timeout)
-    check_conn(conn)  # Pools connection and notifies on the way.
-    notifies = conn.notifies[:]
+    # Wait up to timeout for the first notification and return it, plus any
+    # sibling delivered in the same packet.
+    notifies = list(conn.notifies(timeout=timeout, stop_after=1))
     if notifies:
-        logger.debug("Received %d Postgres notifies.", len(conn.notifies))
-        conn.notifies[:] = []
+        logger.debug("Received %d Postgres notifies.", len(notifies))
     return notifies
 
 
@@ -215,11 +192,11 @@ class QueryManager:
         schema = schema or "dramatiq"
         prefix = prefix or ""
 
-        for name, sql in self.queries.items():
+        for name, query in self.queries.items():
             setattr(
                 self,
                 name,
-                sql.format(
+                query.format(
                     schema=quote_ident(schema),
                     tablename=quote_ident(prefix + "queue"),
                     workertable=quote_ident(prefix + "worker"),

@@ -6,8 +6,13 @@ in the database you already have — no Redis, no RabbitMQ.
 ## Install
 
 ```console
-$ pip install dramatiq-postgres psycopg2-binary
+$ pip install dramatiq-postgres
 ```
+
+The driver is [psycopg 3](https://www.psycopg.org/psycopg3/) (with its
+connection pool), installed automatically. It needs the libpq library on
+the system; if you'd rather have a self-contained wheel, add
+`pip install "psycopg[binary]"`.
 
 ## Usage
 
@@ -90,7 +95,7 @@ All `PostgresBroker` options:
 | Option                 | Default     | Description                                                        |
 | ---------------------- | ----------- | ------------------------------------------------------------------ |
 | `url`                  | `""`        | libpq URL or kwargs dict; `?maxconn=16` caps the pool              |
-| `pool`                 | `None`      | bring your own psycopg2 pool instead of `url`                      |
+| `pool`                 | `None`      | bring your own `psycopg_pool.ConnectionPool` instead of `url`      |
 | `results`              | `True`      | enable the result backend and middleware                           |
 | `schema`               | `dramatiq`  | Postgres schema holding the tables                                 |
 | `prefix`               | `""`        | table name prefix                                                  |

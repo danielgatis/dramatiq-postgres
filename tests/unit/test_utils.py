@@ -5,44 +5,48 @@ from dramatiq_postgres.utils import make_pool
 
 class TestMakePool:
     @pytest.fixture
-    def tp(self, mocker):
-        tp = mocker.patch("dramatiq_postgres.utils.ThreadedConnectionPool")
-        yield tp
-        tp.reset_mock()
+    def cp(self, mocker):
+        cp = mocker.patch("dramatiq_postgres.utils.ConnectionPool")
+        yield cp
+        cp.reset_mock()
 
-    def test_empty(self, tp):
-        pool = make_pool("")
+    def test_empty(self, cp):
+        make_pool("")
 
-        assert 16 == pool.minconn
+        call = cp.call_args
+        assert 0 == call.kwargs["min_size"]
+        assert 16 == call.kwargs["max_size"]
 
-    def test_keyword(self, tp):
-        pool = make_pool("dbname=toto")
+    def test_keyword(self, cp):
+        make_pool("dbname=toto")
 
-        call = tp.mock_calls[0]
-        assert "dbname=toto" in call[1][2]
-        assert 16 == pool.minconn
+        call = cp.call_args
+        assert "dbname=toto" in call.args[0]
+        assert 16 == call.kwargs["max_size"]
 
-    def test_url_param(self, tp):
-        pool = make_pool("postgresql:///?minconn=4")
+    def test_url_param(self, cp):
+        make_pool("postgresql:///?minconn=4")
 
-        call = tp.mock_calls[0]
-        assert "minconn" not in call[1][2]
-        assert 4 == pool.minconn
+        call = cp.call_args
+        assert "minconn" not in call.args[0]
+        assert "minconn" not in call.kwargs["kwargs"]
+        assert 4 == call.kwargs["min_size"]
 
-    def test_min_max(self, tp):
-        pool = make_pool("postgresql://host/?minconn=4&maxconn=10")
+    def test_min_max(self, cp):
+        make_pool("postgresql://host/?minconn=4&maxconn=10")
 
-        call = tp.mock_calls[0]
-        assert "maxconn" not in call[1][2]
-        assert 4 == pool.minconn
+        call = cp.call_args
+        assert "maxconn" not in call.args[0]
+        assert "maxconn" not in call.kwargs["kwargs"]
+        assert 4 == call.kwargs["min_size"]
+        assert 10 == call.kwargs["max_size"]
 
-    def test_dict(self, tp):
-        pool = make_pool({"host": "hostname", "minconn": 10})
+    def test_dict(self, cp):
+        make_pool({"host": "hostname", "minconn": 10})
 
-        call = tp.mock_calls[0]
-        assert "host" in call.kwargs
-        assert call.kwargs["host"] == "hostname"
-        assert 10 == pool.minconn
+        call = cp.call_args
+        assert call.kwargs["kwargs"]["host"] == "hostname"
+        assert 10 == call.kwargs["min_size"]
 
 
 def test_quote_ident():
