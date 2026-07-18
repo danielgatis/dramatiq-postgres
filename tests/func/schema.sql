@@ -1,0 +1,9 @@
+\set ON_ERROR_STOP on
+
+CREATE SCHEMA functest;
+
+CREATE TABLE functest.witness(
+  id SERIAL PRIMARY KEY,
+  ctime TIMESTAMP WITH TIME ZONE DEFAULT (NOW() AT TIME ZONE 'UTC'),
+  payload JSONB
+);

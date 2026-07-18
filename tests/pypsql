@@ -1,0 +1,54 @@
+#!/usr/bin/env python
+# Executes SQL from stdin.
+#
+# This scripts avoid to apt install psql
+
+import logging
+import sys
+from warnings import filterwarnings
+
+filterwarnings("ignore", message="The psycopg2 wheel package will be renamed")  # noqa
+
+import psycopg2
+
+
+def main():
+    logging.basicConfig(format="%(levelname)1.1s: %(message)s")
+    sql = strip_psql(sys.stdin)
+    try:
+        psql(sql)
+    except Exception as e:
+        logging.error("%s", e)
+        return 1
+    logging.info("Done.")
+    return 0
+
+
+def psql(sql):
+    conn = psycopg2.connect("")
+    with conn:
+        with conn.cursor() as curs:
+            try:
+                curs.execute(sql)
+            except Exception as e:
+                logging.error("%s", e)
+                sys.exit(1)
+    conn.close()
+
+
+def strip_psql(fo):
+    sql = []
+    for line in fo:
+        if line.startswith('--'):
+            continue
+        if not line:
+            continue
+        # Strip psql commands.
+        if line.startswith('\\'):
+            continue
+        sql.append(line)
+    return ''.join(sql)
+
+
+if '__main__' == __name__:
+    sys.exit(main())

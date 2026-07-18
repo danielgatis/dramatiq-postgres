@@ -1,0 +1,7 @@
+dist/
+*.egg-info/
+.pyre*
+.watchmanconfig
+__pycache__
+.venv/
+my-workers*.log

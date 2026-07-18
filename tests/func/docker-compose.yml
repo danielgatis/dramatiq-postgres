@@ -1,0 +1,18 @@
+# Reproduce the CI setup
+
+version: "2"
+
+services:
+  postgres:
+    image: postgres:11-alpine
+
+  runner:
+    image: circleci/python:3.7-stretch
+    environment:
+      HISTFILE: /workspace/tests/func/.docker-history
+      PGHOST: postgres
+      PGUSER: postgres
+    volumes:
+    - ../..:/workspace
+    entrypoint: /workspace/tests/func/entrypoint.sh
+    links: [postgres]

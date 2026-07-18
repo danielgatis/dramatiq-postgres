@@ -1,0 +1,9 @@
+cd workspace/
+pager /home/circleci/.local/lib/python3.7/site-packages/poetry/console/commands/install.py
+ls -l dist/
+ls -dl dist/
+sudo chown -R 3434:3434 *
+vim /home/circleci/.local/lib/python3.7/site-packages/poetry/console/commands/install.py
+vi /home/circleci/.local/lib/python3.7/site-packages/poetry/console/commands/install.py
+nano /home/circleci/.local/lib/python3.7/site-packages/poetry/console/commands/install.py
+sudo -i

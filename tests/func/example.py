@@ -1,0 +1,155 @@
+#!/usr/bin/env python
+#
+#       E X A M P L E
+#
+#
+# This example script is tested on CI. Testing code is in tests/func/. example
+# is configured using PG* envvars, .pgpass and pg_service.conf file, like psql.
+#
+# The failing task can raise randomly error. This is helpful to check retrying
+# a task until it succeed. You can seed random with an int SEED env var.
+# 1550768028 is a known SEED to trigger exceptions at least once.
+#
+# The writer tasks inserts its arguments in functests.witness table as declared
+# in tests/func/schema.sql.
+#
+# To run workers:
+#
+#     SEED=xx dramatiq --verbose -p 2 -t 2 example
+#
+# You can add `--watch .` in the above dramatiq command to prevent you from
+# manually restarting when modifying files, but it may also cause dramatiq
+# to restart inappropriately, fetching messages from db instead of receiving
+# notification.
+#
+# To produce messages:
+#
+#     python example.py
+
+import bdb
+import json
+import logging
+import os
+import pdb
+import random
+import sys
+import time
+
+import dramatiq.results
+import psycopg2.pool
+from psycopg2.extras import Json
+
+import dramatiq_postgres
+
+logger = logging.getLogger(__name__)
+# Empty connstring let's you configure psycogp2 using PG* env vars.
+pool = psycopg2.pool.ThreadedConnectionPool(
+    16, 16, "application_name=dramatiq-postgres"
+)
+# PostgresBroker accepts either pool= or url=. URL is a libpq connstring.
+# PostgresBroker creates a ThreadedConnectionPool from URL, swallowing minconn
+# and maxconn query argument.
+#
+# Timing knobs are read from env so func tests can speed up crash recovery.
+dramatiq.set_broker(
+    dramatiq_postgres.PostgresBroker(
+        pool=pool,
+        heartbeat_interval=float(
+            os.environ.get("DRAMATIQ_PG_HEARTBEAT_INTERVAL", 15)
+        ),
+        heartbeat_ttl=float(os.environ.get("DRAMATIQ_PG_HEARTBEAT_TTL", 60)),
+        maintenance_interval=float(
+            os.environ.get("DRAMATIQ_PG_MAINTENANCE_INTERVAL", 30)
+        ),
+    )
+)
+
+
+seed = int(os.environ.get("SEED", int(time.time())))
+random.seed(seed)
+
+
+@dramatiq.actor(store_results=True)
+def saver(*, wait=0, **data):
+    time.sleep(wait)
+    logger.debug("Returning %.60s.", data)
+    return data
+
+
+@dramatiq.actor
+def sleeper(param):
+    time.sleep(param)
+
+
+@dramatiq.actor
+def writer(*args, **kwargs):
+    conn = pool.getconn()
+    insert = (
+        "INSERT INTO functest.witness (payload) VALUES (%s::jsonb);",
+        (Json(dict(args=args, kwargs=kwargs)),),
+    )
+    try:
+        with conn:
+            with conn.cursor() as curs:
+                logger.info("Inserting args in witness table.")
+                curs.execute(*insert)
+    finally:
+        pool.putconn(conn)
+
+
+# Set minimal value for max_backoff to avoid waiting 30days when running func
+# tests on CI.
+@dramatiq.actor(max_backoff=100)
+def failing(always=True, message="Forged failure", wait=0):
+    time.sleep(wait)
+    if always or random.randint(0, 1):
+        raise Exception(message)
+    else:
+        logger.info("Not failing (%s).", message)
+    writer(message=message, notice="Did not failed.")
+
+
+@dramatiq.actor(max_retries=0)
+def rejecting(message="Rejecting"):
+    writer(message=message)
+    raise Exception(message)
+
+
+def main():
+    message = saver.send(wait=random.randint(0, 10), message="Saved.")
+    for _ in range(10):
+        sleeper.send(2)
+        writer.send("toto", named="titi")
+        failing.send(always=False)
+        d = random.randint(4, 10) * 1000
+        writer.send_with_options(args=("delayed",), delay=d)
+
+    long_message = writer.send(long="a" * 7810)
+    assert len(json.dumps(json.loads(long_message.encode()))) >= 8000
+    writer.send("very", long="message" * 8000)
+    rejecting.send()
+    message.get_result(block=True, timeout=20_000)
+    logger.debug("Got result from %s.", message.message_id)
+
+
+if "__main__" == __name__:
+    logging.basicConfig(
+        level=logging.DEBUG,
+        format="%(levelname)1.1s: %(message)s",
+    )
+    logger.info("Random seed is %s.", seed)
+
+    try:
+        exit(main())
+    except (bdb.BdbQuit, KeyboardInterrupt):
+        logger.info("Interrupted.")
+    except Exception:
+        logger.exception("Unhandled error:")
+        if sys.stdout.isatty():
+            logger.debug("Dropping in debugger.")
+            pdb.post_mortem(sys.exc_info()[2])
+
+    exit(os.EX_SOFTWARE)
+elif logging.getLogger().handlers:
+    # Log for dramatiq worker process.
+    logger.info("Random seed is %s.", seed)
