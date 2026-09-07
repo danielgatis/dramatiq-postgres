@@ -20,7 +20,15 @@ def django_project():
     previous_broker = dramatiq.get_broker()
 
     settings.configure(
-        INSTALLED_APPS=["dramatiq_postgres.django"],
+        INSTALLED_APPS=[
+            # contrib.admin and its dependencies, so the app's admin module
+            # can be imported and exercised.
+            "django.contrib.contenttypes",
+            "django.contrib.auth",
+            "django.contrib.messages",
+            "django.contrib.admin",
+            "dramatiq_postgres.django",
+        ],
         DATABASES={
             "default": {
                 "ENGINE": "django.db.backends.postgresql",
@@ -111,3 +119,116 @@ def test_db_connections_middleware_closes_connections(django_project, mocker):
     mw.before_worker_thread_shutdown(None, None)
     mw.before_consumer_thread_shutdown(None, None)
     assert close_all.call_count == 3
+
+
+def test_models_map_the_broker_tables(django_project):
+    from django.core.management import call_command
+
+    from dramatiq_postgres.django.models import Message, Result, Worker
+
+    call_command("migrate", verbosity=0)
+
+    # The fixture configures a custom schema, so this also covers the
+    # retargeting done by the AppConfig.
+    assert Message._meta.db_table == '"dramatiq_django"."queue"'
+    assert Worker._meta.db_table == '"dramatiq_django"."worker"'
+    assert Result._meta.db_table == '"dramatiq_django"."result"'
+
+    # Unmanaged: the tables come from schema.sql, never from Django.
+    assert not Message._meta.managed
+
+    import dramatiq
+
+    @dramatiq.actor(queue_name="admin_q")
+    def probe():
+        pass
+
+    probe.send()
+
+    msg = Message.objects.get(queue_name="admin_q")
+    assert msg.state == Message.QUEUED
+    assert msg.actor_name == "probe"
+
+
+@pytest.fixture
+def admins(django_project):
+    from django.contrib import admin as dj_admin
+
+    from dramatiq_postgres.django.admin import (
+        MessageAdmin,
+        ResultAdmin,
+        WorkerAdmin,
+    )
+    from dramatiq_postgres.django.models import Message, Result, Worker
+
+    return [
+        MessageAdmin(Message, dj_admin.site),
+        WorkerAdmin(Worker, dj_admin.site),
+        ResultAdmin(Result, dj_admin.site),
+    ]
+
+
+def test_every_write_path_is_disabled(admins):
+    for site in admins:
+        assert not site.has_add_permission(None)
+        assert not site.has_change_permission(None)
+        assert not site.has_delete_permission(None)
+        # Without this the bulk-delete action would still write.
+        assert site.actions is None
+
+
+def test_message_fields_come_from_the_payload(django_project):
+    from django.contrib import admin as dj_admin
+
+    from dramatiq_postgres.django.admin import MessageAdmin
+    from dramatiq_postgres.django.models import Message
+
+    site = MessageAdmin(Message, dj_admin.site)
+    msg = Message(
+        queue_name="default",
+        state=Message.QUEUED,
+        message={
+            "actor_name": "send_email",
+            "args": ["someone@example.com"],
+            "kwargs": {"urgent": True},
+            "options": {"retries": 2},
+        },
+    )
+
+    assert site.actor_display(msg) == "send_email"
+    assert site.args_display(msg) == ["someone@example.com"]
+    assert site.kwargs_display(msg) == {"urgent": True}
+    assert site.retries_display(msg) == 2
+    assert "queued" in site.state_display(msg)
+
+
+def test_message_fields_tolerate_a_missing_payload(django_project):
+    from django.contrib import admin as dj_admin
+
+    from dramatiq_postgres.django.admin import MessageAdmin
+    from dramatiq_postgres.django.models import Message
+
+    site = MessageAdmin(Message, dj_admin.site)
+    msg = Message(queue_name="default", state=None, message=None)
+
+    assert site.actor_display(msg) == "—"
+    assert site.args_display(msg) == "—"
+    assert site.retries_display(msg) == "—"
+    assert site.traceback_display(msg) == "—"
+
+
+def test_worker_liveness_uses_the_heartbeat_ttl(django_project):
+    import datetime
+
+    from django.contrib import admin as dj_admin
+    from django.utils import timezone
+
+    from dramatiq_postgres.django.admin import WorkerAdmin
+    from dramatiq_postgres.django.models import Worker
+
+    site = WorkerAdmin(Worker, dj_admin.site)
+    now = timezone.now()
+
+    assert "alive" in site.liveness(Worker(heartbeat_at=now))
+    stale = now - datetime.timedelta(seconds=3600)
+    assert "dead" in site.liveness(Worker(heartbeat_at=stale))
