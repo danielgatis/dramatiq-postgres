@@ -1,8 +1,8 @@
 import dramatiq
 from django.apps import AppConfig
-from dramatiq.middleware import default_middleware
 from django.conf import settings
 from django.utils.module_loading import import_string
+from dramatiq.middleware import default_middleware
 
 from ..broker import PostgresBroker
 from .middleware import DbConnectionsMiddleware
@@ -49,13 +49,15 @@ class DramatiqPostgresConfig(AppConfig):
         # empty list is left alone: Broker reads it as "use the defaults", and
         # overriding that would silently drop Retries & co.
         if middleware:
-            if not any(isinstance(m, DbConnectionsMiddleware) for m in middleware):
+            if not any(
+                isinstance(m, DbConnectionsMiddleware) for m in middleware
+            ):
                 middleware.append(DbConnectionsMiddleware())
             options["middleware"] = middleware
         else:
-            options["middleware"] = [
-                m() for m in default_middleware
-            ] + [DbConnectionsMiddleware()]
+            options["middleware"] = [m() for m in default_middleware] + [
+                DbConnectionsMiddleware()
+            ]
 
         if "pool" not in options and "url" not in options:
             alias = config.get("DATABASE_ALIAS", "default")

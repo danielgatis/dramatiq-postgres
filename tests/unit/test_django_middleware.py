@@ -8,6 +8,7 @@ django = pytest.importorskip("django")
 @pytest.fixture
 def build_middleware():
     """Calls the AppConfig's middleware resolution against a DRAMATIQ_BROKER dict."""
+
     def build(config):
         from django.utils.module_loading import import_string
         from dramatiq.middleware import default_middleware
@@ -21,7 +22,9 @@ def build_middleware():
             for m in config.get("MIDDLEWARE", [])
         ]
         if middleware:
-            if not any(isinstance(m, DbConnectionsMiddleware) for m in middleware):
+            if not any(
+                isinstance(m, DbConnectionsMiddleware) for m in middleware
+            ):
                 middleware.append(DbConnectionsMiddleware())
             return middleware
         return [m() for m in default_middleware] + [DbConnectionsMiddleware()]

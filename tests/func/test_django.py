@@ -89,7 +89,9 @@ def test_db_connections_middleware_is_added(django_project):
     from dramatiq_postgres.django.middleware import DbConnectionsMiddleware
 
     broker = apps.get_app_config("dramatiq_postgres").broker
-    assert any(isinstance(m, DbConnectionsMiddleware) for m in broker.middleware)
+    assert any(
+        isinstance(m, DbConnectionsMiddleware) for m in broker.middleware
+    )
 
 
 def test_db_connections_middleware_closes_connections(django_project, mocker):
