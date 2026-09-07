@@ -81,3 +81,31 @@ def test_migrate_is_idempotent(django_project):
 
     call_command("migrate", verbosity=0)
     call_command("migrate", verbosity=0)
+
+
+def test_db_connections_middleware_is_added(django_project):
+    from django.apps import apps
+
+    from dramatiq_postgres.django.middleware import DbConnectionsMiddleware
+
+    broker = apps.get_app_config("dramatiq_postgres").broker
+    assert any(isinstance(m, DbConnectionsMiddleware) for m in broker.middleware)
+
+
+def test_db_connections_middleware_closes_connections(django_project, mocker):
+    from dramatiq_postgres.django.middleware import DbConnectionsMiddleware
+
+    close_old = mocker.patch("django.db.close_old_connections")
+    close_all = mocker.patch("django.db.connections.close_all")
+
+    mw = DbConnectionsMiddleware()
+
+    mw.before_process_message(None, None)
+    mw.after_process_message(None, None)
+    assert close_old.call_count == 2
+    assert close_all.call_count == 0
+
+    mw.before_worker_shutdown(None)
+    mw.before_worker_thread_shutdown(None, None)
+    mw.before_consumer_thread_shutdown(None, None)
+    assert close_all.call_count == 3

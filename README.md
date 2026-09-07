@@ -88,6 +88,28 @@ DRAMATIQ_BROKER = {
 }
 ```
 
+`DbConnectionsMiddleware` is appended automatically, so Django's database
+connections are refreshed around each message and closed on shutdown —
+workers are long-lived threads with no request cycle to do it for them. List
+it in `MIDDLEWARE` explicitly to control its position.
+
+### Migrating from django_dramatiq
+
+1. Replace `django_dramatiq` with `dramatiq_postgres.django` in
+   `INSTALLED_APPS`. Keeping both installed makes the last one win, since
+   each sets the global broker from `AppConfig.ready()`.
+2. Drop `django_dramatiq.middleware.DbConnectionsMiddleware` from
+   `MIDDLEWARE` — the equivalent is now built in.
+3. Replace `manage.py rundramatiq` with `dramatiq dramatiq_postgres.django.worker`.
+4. If any of your own migrations depends on a `django_dramatiq` migration,
+   remove that edge before uninstalling the app, or the migration graph
+   fails to resolve with `NodeNotFoundError`.
+5. The `Task` model and its admin are not reimplemented; queued and rejected
+   messages live in the `dramatiq.queue` table.
+
+Messages sitting in the old broker are not migrated — drain the queue before
+cutting over.
+
 ## Configuration
 
 All `PostgresBroker` options:
