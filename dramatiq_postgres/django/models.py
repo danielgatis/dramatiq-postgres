@@ -1,19 +1,15 @@
-"""Unmanaged models mapping the broker tables, for read-only introspection.
+"""Unmanaged models over the broker tables.
 
-These exist so the queue can be inspected from the Django admin. They are
-``managed = False``: the tables are created by the app's migration, which runs
-the same ``schema.sql`` as the CLI, and Django must never alter them.
+The tables come from this app's migration, which runs schema.sql — Django
+never creates or alters them.
 
-``db_table`` defaults to the stock ``"dramatiq"."<name>"``; the AppConfig
-rewrites it in ``ready()`` when ``DRAMATIQ_BROKER["OPTIONS"]`` sets a custom
-``schema`` or ``prefix``. It cannot be resolved here: Django needs the table
-name when the class is defined, which is before settings are guaranteed to be
-configured.
+``db_table`` carries the stock name and the AppConfig rewrites it in
+``ready()`` for a custom ``schema``/``prefix``: it cannot be resolved in
+``Meta``, which is evaluated before settings are guaranteed to be configured.
 """
 
 from django.db import models
-
-__all__ = ["Message", "Worker", "Result"]
+from django.utils.translation import gettext_lazy as _
 
 
 def table_name(name, schema=None, prefix=None):
@@ -21,12 +17,11 @@ def table_name(name, schema=None, prefix=None):
     return f'"{schema or "dramatiq"}"."{prefix or ""}{name}"'
 
 
-class Message(models.Model):
-    """A message in the queue table.
+class Job(models.Model):
+    """A message in the queue.
 
-    Only pending work and failures are visible here: a message is deleted as
-    soon as it is acknowledged, so successfully processed tasks do not
-    accumulate. Rejected messages are kept until ``purge_maxage``.
+    Only pending work and failures live here: a message is deleted as soon as
+    it is acknowledged, so completed tasks do not accumulate.
     """
 
     QUEUED = "queued"
@@ -46,55 +41,54 @@ class Message(models.Model):
     class Meta:
         managed = False
         db_table = table_name("queue")
-        verbose_name = "message"
-        verbose_name_plural = "messages"
+        verbose_name = _("job")
+        verbose_name_plural = _("jobs")
 
     def __str__(self):
         return f"{self.actor_name or '?'} ({self.message_id})"
 
-    def _payload(self, key, default=None):
+    def _opt(self, key, default=None):
         if not isinstance(self.message, dict):
             return default
-        return self.message.get(key, default)
+        return (self.message.get("options") or {}).get(key, default)
 
     @property
     def actor_name(self):
-        return self._payload("actor_name")
+        if not isinstance(self.message, dict):
+            return None
+        return self.message.get("actor_name")
+
+    @property
+    def args(self):
+        return (self.message or {}).get("args") if self.message else None
+
+    @property
+    def kwargs(self):
+        return (self.message or {}).get("kwargs") if self.message else None
 
     @property
     def retries(self):
-        return (self._payload("options") or {}).get("retries")
+        return self._opt("retries") or 0
 
     @property
     def traceback(self):
-        return (self._payload("options") or {}).get("traceback")
+        return self._opt("traceback")
 
-
-class Worker(models.Model):
-    """A live worker process, identified by its heartbeat.
-
-    A row whose ``heartbeat_at`` is older than the broker's ``heartbeat_ttl``
-    is a dead worker; its consumed messages are requeued by maintenance.
-    """
-
-    worker_id = models.UUIDField(primary_key=True)
-    heartbeat_at = models.DateTimeField()
-
-    class Meta:
-        managed = False
-        db_table = table_name("worker")
-        verbose_name = "worker"
-        verbose_name_plural = "workers"
-
-    def __str__(self):
-        return str(self.worker_id)
+    @property
+    def is_running(self):
+        return self.state == self.CONSUMED
 
 
 class Result(models.Model):
-    """A stored actor result.
+    """The return value of an actor declared with ``store_results=True``.
 
-    Only populated for actors declared with ``store_results=True``.
+    Outlives the job: the queue row is deleted on ack, this one stays until
+    ``expires_at``.
     """
+
+    # dramatiq stores the raw value; only an exception gets an envelope,
+    # marked by this canary (dramatiq/results/result.py).
+    CANARY = "dramatiq.results.Result"
 
     message_id = models.UUIDField(primary_key=True)
     result = models.JSONField(null=True)
@@ -103,8 +97,44 @@ class Result(models.Model):
     class Meta:
         managed = False
         db_table = table_name("result")
-        verbose_name = "result"
-        verbose_name_plural = "results"
+        verbose_name = _("result")
+        verbose_name_plural = _("results")
 
     def __str__(self):
         return str(self.message_id)
+
+    @property
+    def is_failure(self):
+        return (
+            isinstance(self.result, dict)
+            and self.result.get("__t") == self.CANARY
+        )
+
+    @property
+    def error(self):
+        """(type, message) when the actor raised."""
+        if not self.is_failure:
+            return None
+        exn = self.result.get("exn") or {}
+        return exn.get("type"), exn.get("msg")
+
+    @property
+    def payload(self):
+        """The actor's return value, or None when it failed."""
+        return None if self.is_failure else self.result
+
+
+class Worker(models.Model):
+    """A worker process, kept alive by its heartbeat."""
+
+    worker_id = models.UUIDField(primary_key=True)
+    heartbeat_at = models.DateTimeField()
+
+    class Meta:
+        managed = False
+        db_table = table_name("worker")
+        verbose_name = _("worker")
+        verbose_name_plural = _("workers")
+
+    def __str__(self):
+        return str(self.worker_id)

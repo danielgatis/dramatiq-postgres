@@ -43,6 +43,7 @@ def django_project():
             "OPTIONS": {"schema": "dramatiq_django", "listen": False}
         },
         USE_TZ=True,
+        SECRET_KEY="dramatiq-postgres-tests",
     )
     django.setup()
     yield settings
@@ -124,18 +125,18 @@ def test_db_connections_middleware_closes_connections(django_project, mocker):
 def test_models_map_the_broker_tables(django_project):
     from django.core.management import call_command
 
-    from dramatiq_postgres.django.models import Message, Result, Worker
+    from dramatiq_postgres.django.models import Job, Result, Worker
 
     call_command("migrate", verbosity=0)
 
     # The fixture configures a custom schema, so this also covers the
     # retargeting done by the AppConfig.
-    assert Message._meta.db_table == '"dramatiq_django"."queue"'
+    assert Job._meta.db_table == '"dramatiq_django"."queue"'
     assert Worker._meta.db_table == '"dramatiq_django"."worker"'
     assert Result._meta.db_table == '"dramatiq_django"."result"'
 
     # Unmanaged: the tables come from schema.sql, never from Django.
-    assert not Message._meta.managed
+    assert not Job._meta.managed
 
     import dramatiq
 
@@ -145,8 +146,8 @@ def test_models_map_the_broker_tables(django_project):
 
     probe.send()
 
-    msg = Message.objects.get(queue_name="admin_q")
-    assert msg.state == Message.QUEUED
+    msg = Job.objects.get(queue_name="admin_q")
+    assert msg.state == Job.QUEUED
     assert msg.actor_name == "probe"
 
 
@@ -155,66 +156,81 @@ def admins(django_project):
     from django.contrib import admin as dj_admin
 
     from dramatiq_postgres.django.admin import (
-        MessageAdmin,
+        JobAdmin,
         ResultAdmin,
         WorkerAdmin,
     )
-    from dramatiq_postgres.django.models import Message, Result, Worker
+    from dramatiq_postgres.django.models import Job, Result, Worker
 
     return [
-        MessageAdmin(Message, dj_admin.site),
+        JobAdmin(Job, dj_admin.site),
         WorkerAdmin(Worker, dj_admin.site),
         ResultAdmin(Result, dj_admin.site),
     ]
 
 
-def test_every_write_path_is_disabled(admins):
+def test_jobs_and_workers_cannot_be_edited(admins):
+    """The tables are the broker's live state; hand edits corrupt the queue."""
     for site in admins:
         assert not site.has_add_permission(None)
         assert not site.has_change_permission(None)
+        # Deletion goes through the actions, which guard on state.
         assert not site.has_delete_permission(None)
-        # Without this the bulk-delete action would still write.
-        assert site.actions is None
 
 
-def test_message_fields_come_from_the_payload(django_project):
+def test_only_job_admin_exposes_actions(admins):
+    from dramatiq_postgres.django.admin import JobAdmin
+
+    for site in admins:
+        if isinstance(site, JobAdmin):
+            assert set(site.actions) == {"action_retry", "action_discard"}
+        else:
+            assert not site.actions
+
+
+def test_job_columns_come_from_the_payload(django_project):
     from django.contrib import admin as dj_admin
 
-    from dramatiq_postgres.django.admin import MessageAdmin
-    from dramatiq_postgres.django.models import Message
+    from dramatiq_postgres.django.admin import JobAdmin
+    from dramatiq_postgres.django.models import Job
 
-    site = MessageAdmin(Message, dj_admin.site)
-    msg = Message(
+    site = JobAdmin(Job, dj_admin.site)
+    job = Job(
         queue_name="default",
-        state=Message.QUEUED,
+        state=Job.QUEUED,
         message={
-            "actor_name": "send_email",
+            "actor_name": "myapp.tasks.send_email",
             "args": ["someone@example.com"],
             "kwargs": {"urgent": True},
             "options": {"retries": 2},
         },
     )
 
-    assert site.actor_display(msg) == "send_email"
-    assert site.args_display(msg) == ["someone@example.com"]
-    assert site.kwargs_display(msg) == {"urgent": True}
-    assert site.retries_display(msg) == 2
-    assert "queued" in site.state_display(msg)
+    # The column shows the short name with the dotted path underneath.
+    actor = site.actor_col(job)
+    assert "send_email" in actor
+    assert "myapp.tasks.send_email" in actor
+    assert "2" in site.retries_col(job)
+
+    params = site.params_col(job)
+    assert "someone@example.com" in params
+    assert "urgent" in params
+    assert "queued" in site.state_badge(job)
 
 
-def test_message_fields_tolerate_a_missing_payload(django_project):
+def test_job_columns_tolerate_a_missing_payload(django_project):
     from django.contrib import admin as dj_admin
 
-    from dramatiq_postgres.django.admin import MessageAdmin
-    from dramatiq_postgres.django.models import Message
+    from dramatiq_postgres.django.admin import JobAdmin
+    from dramatiq_postgres.django.models import Job
 
-    site = MessageAdmin(Message, dj_admin.site)
-    msg = Message(queue_name="default", state=None, message=None)
+    site = JobAdmin(Job, dj_admin.site)
+    job = Job(queue_name="default", state=None, message=None)
 
-    assert site.actor_display(msg) == "—"
-    assert site.args_display(msg) == "—"
-    assert site.retries_display(msg) == "—"
-    assert site.traceback_display(msg) == "—"
+    assert site.retries_col(job) == "\u2014"
+    assert site.traceback_col(job) == "\u2014"
+    assert site.worker_col(job) == "\u2014"
+    assert "no parameters" in site.params_col(job)
 
 
 def test_worker_liveness_uses_the_heartbeat_ttl(django_project):
@@ -229,6 +245,29 @@ def test_worker_liveness_uses_the_heartbeat_ttl(django_project):
     site = WorkerAdmin(Worker, dj_admin.site)
     now = timezone.now()
 
-    assert "alive" in site.liveness(Worker(heartbeat_at=now))
+    assert "alive" in site.status_badge(Worker(heartbeat_at=now))
     stale = now - datetime.timedelta(seconds=3600)
-    assert "dead" in site.liveness(Worker(heartbeat_at=stale))
+    assert "dead" in site.status_badge(Worker(heartbeat_at=stale))
+
+
+def test_retry_skips_running_jobs(django_project):
+    """A consumed job is held by a worker: requeuing it double-executes."""
+    from django.contrib import admin as dj_admin
+    from django.contrib.messages.storage.fallback import FallbackStorage
+    from django.test import RequestFactory
+
+    from dramatiq_postgres.django.admin import JobAdmin
+    from dramatiq_postgres.django.models import Job
+
+    request = RequestFactory().post("/")
+    request.session = {}
+    request._messages = FallbackStorage(request)
+
+    site = JobAdmin(Job, dj_admin.site)
+    running = Job.objects.filter(state=Job.CONSUMED)
+    before = running.count()
+
+    site.action_retry(request, running)
+    site.action_discard(request, Job.objects.filter(state=Job.CONSUMED))
+
+    assert Job.objects.filter(state=Job.CONSUMED).count() == before

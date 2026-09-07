@@ -1,0 +1,254 @@
+# Brazilian Portuguese translation for the dramatiq job dashboard.
+#
+msgid ""
+msgstr ""
+"Project-Id-Version: dramatiq-dashboard\n"
+"Report-Msgid-Bugs-To: \n"
+"POT-Creation-Date: 2026-09-07 15:17+0000\n"
+"PO-Revision-Date: 2026-09-07 15:20+0000\n"
+
+
+"Language: pt_BR\n"
+"MIME-Version: 1.0\n"
+"Content-Type: text/plain; charset=UTF-8\n"
+"Content-Transfer-Encoding: 8bit\n"
+"Plural-Forms: nplurals=2; plural=(n > 1);\n"
+
+#: dramatiq_postgres/django/admin.py:33
+msgid "queued"
+msgstr "na fila"
+
+#: dramatiq_postgres/django/admin.py:34
+msgid "running"
+msgstr "rodando"
+
+#: dramatiq_postgres/django/admin.py:35
+msgid "failed"
+msgstr "falhou"
+
+#: dramatiq_postgres/django/admin.py:106
+msgid "worker no longer exists"
+msgstr "worker nao existe mais"
+
+#: dramatiq_postgres/django/admin.py:142
+msgid "availability"
+msgstr "disponibilidade"
+
+#: dramatiq_postgres/django/admin.py:146
+msgid "Ready now"
+msgstr "Pronto agora"
+
+#: dramatiq_postgres/django/admin.py:146
+msgid "Scheduled"
+msgstr "Agendado"
+
+#: dramatiq_postgres/django/admin.py:197
+msgid "state"
+msgstr "estado"
+
+#: dramatiq_postgres/django/admin.py:202
+msgid "actor"
+msgstr "actor"
+
+#: dramatiq_postgres/django/admin.py:211
+msgid "retries"
+msgstr "tentativas"
+
+#: dramatiq_postgres/django/admin.py:217
+msgid "when"
+msgstr "quando"
+
+#: dramatiq_postgres/django/admin.py:224
+#, python-format
+msgid "in %(secs)ss"
+msgstr "em %(secs)ss"
+
+#: dramatiq_postgres/django/admin.py:230 dramatiq_postgres/django/admin.py:513
+#, python-format
+msgid "%(n)ss ago"
+msgstr "ha %(n)ss"
+
+#: dramatiq_postgres/django/admin.py:232 dramatiq_postgres/django/admin.py:515
+#, python-format
+msgid "%(n)smin ago"
+msgstr "ha %(n)smin"
+
+#: dramatiq_postgres/django/admin.py:233
+#, python-format
+msgid "%(n)sh ago"
+msgstr "ha %(n)sh"
+
+#: dramatiq_postgres/django/admin.py:235 dramatiq_postgres/django/admin.py:239
+#: dramatiq_postgres/django/models.py:137
+msgid "worker"
+msgstr "worker"
+
+#: dramatiq_postgres/django/admin.py:243
+msgid "parameters"
+msgstr "parametros"
+
+#: dramatiq_postgres/django/admin.py:249
+msgid "no parameters"
+msgstr "sem parametros"
+
+#: dramatiq_postgres/django/admin.py:272 dramatiq_postgres/django/models.py:101
+msgid "result"
+msgstr "resultado"
+
+#: dramatiq_postgres/django/admin.py:279
+msgid "no stored result (actor has no store_results=True)"
+msgstr "sem resultado guardado (actor sem store_results=True)"
+
+#: dramatiq_postgres/django/admin.py:296
+msgid "traceback"
+msgstr "traceback"
+
+#: dramatiq_postgres/django/admin.py:336 dramatiq_postgres/django/admin.py:360
+msgid "Queued"
+msgstr "Na fila"
+
+#: dramatiq_postgres/django/admin.py:337 dramatiq_postgres/django/admin.py:361
+msgid "Running"
+msgstr "Rodando"
+
+#: dramatiq_postgres/django/admin.py:338 dramatiq_postgres/django/admin.py:362
+msgid "Failed"
+msgstr "Falhou"
+
+#: dramatiq_postgres/django/admin.py:359 dramatiq_postgres/django/admin.py:568
+msgid "Queue"
+msgstr "Fila"
+
+#: dramatiq_postgres/django/admin.py:364
+msgid "Total"
+msgstr "Total"
+
+#: dramatiq_postgres/django/admin.py:372
+msgid "No jobs in the queue."
+msgstr "Nenhum job na fila."
+
+#: dramatiq_postgres/django/admin.py:391
+msgid "Requeue selected jobs"
+msgstr "Reenfileirar jobs selecionados"
+
+#: dramatiq_postgres/django/admin.py:424
+#, python-format
+msgid "%d job requeued."
+msgid_plural "%d jobs requeued."
+msgstr[0] "%d job reenfileirado."
+msgstr[1] "%d jobs reenfileirados."
+
+#: dramatiq_postgres/django/admin.py:431
+#, python-format
+msgid "%d skipped: running or missing an actor."
+msgid_plural "%d skipped: running or missing an actor."
+msgstr[0] "%d ignorado: em execucao ou sem actor."
+msgstr[1] "%d ignorados: em execucao ou sem actor."
+
+#: dramatiq_postgres/django/admin.py:439
+msgid "Discard selected jobs"
+msgstr "Descartar jobs selecionados"
+
+#: dramatiq_postgres/django/admin.py:449
+#, python-format
+msgid "%d job discarded."
+msgid_plural "%d jobs discarded."
+msgstr[0] "%d job descartado."
+msgstr[1] "%d jobs descartados."
+
+#: dramatiq_postgres/django/admin.py:456
+#, python-format
+msgid "%d skipped: a running job cannot be discarded."
+msgid_plural "%d skipped: running jobs cannot be discarded."
+msgstr[0] "%d ignorado: job em execucao nao pode ser descartado."
+msgstr[1] "%d ignorados: jobs em execucao nao podem ser descartados."
+
+#: dramatiq_postgres/django/admin.py:491
+msgid "status"
+msgstr "status"
+
+#: dramatiq_postgres/django/admin.py:495
+msgid "dead"
+msgstr "morto"
+
+#: dramatiq_postgres/django/admin.py:496
+msgid "alive"
+msgstr "vivo"
+
+#: dramatiq_postgres/django/admin.py:498 dramatiq_postgres/django/admin.py:532
+msgid "running jobs"
+msgstr "jobs em execucao"
+
+#: dramatiq_postgres/django/admin.py:508
+msgid "last heartbeat"
+msgstr "ultimo heartbeat"
+
+#: dramatiq_postgres/django/admin.py:522
+#, python-format
+msgid "past the %(ttl)ss TTL; this worker's jobs will be requeued"
+msgstr "passou do TTL de %(ttl)ss; os jobs deste worker serao reenfileirados"
+
+#: dramatiq_postgres/django/admin.py:529
+#, python-format
+msgid "(TTL %(ttl)ss)"
+msgstr "(TTL %(ttl)ss)"
+
+#: dramatiq_postgres/django/admin.py:541
+msgid "no running jobs"
+msgstr "nenhum job em execucao"
+
+#: dramatiq_postgres/django/admin.py:555
+#, python-format
+msgid "%(n)ss"
+msgstr "%(n)ss"
+
+#: dramatiq_postgres/django/admin.py:567
+msgid "Actor"
+msgstr "Actor"
+
+#: dramatiq_postgres/django/admin.py:569
+msgid "Held for"
+msgstr "Ha quanto tempo"
+
+#: dramatiq_postgres/django/admin.py:594
+msgid "Alive"
+msgstr "Vivos"
+
+#: dramatiq_postgres/django/admin.py:595
+msgid "Dead"
+msgstr "Mortos"
+
+#: dramatiq_postgres/django/admin.py:596
+msgid "Orphan jobs"
+msgstr "Jobs orfaos"
+
+#: dramatiq_postgres/django/admin.py:605
+#, python-format
+msgid ""
+"%(n)d job stuck on a dead worker — broker maintenance requeues it within "
+"%(ttl)ds."
+msgid_plural ""
+"%(n)d jobs stuck on dead workers — broker maintenance requeues them within "
+"%(ttl)ds."
+msgstr[0] ""
+"%(n)d job preso em worker morto — a manutencao do broker reenfileira em ate "
+"%(ttl)ds."
+msgstr[1] ""
+"%(n)d jobs presos em workers mortos — a manutencao do broker reenfileira em "
+"ate %(ttl)ds."
+
+#: dramatiq_postgres/django/models.py:45
+msgid "job"
+msgstr "job"
+
+#: dramatiq_postgres/django/models.py:46
+msgid "jobs"
+msgstr "jobs"
+
+#: dramatiq_postgres/django/models.py:102
+msgid "results"
+msgstr "resultados"
+
+#: dramatiq_postgres/django/models.py:138
+msgid "workers"
+msgstr "workers"

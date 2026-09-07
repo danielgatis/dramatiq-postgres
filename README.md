@@ -95,24 +95,37 @@ it in `MIDDLEWARE` explicitly to control its position.
 
 ### Admin
 
-With `django.contrib.admin` installed, the broker tables show up in the admin
-as **Messages**, **Workers** and **Results**. Messages list the actor, args,
-retry count and the traceback of a rejected message, filterable by state and
-queue; workers are flagged `alive`/`dead` against the broker's
-`heartbeat_ttl`.
+With `django.contrib.admin` installed, the broker tables show up as **Jobs**,
+**Workers** and **Results**.
 
-Everything is read-only, including bulk actions: these tables are the
-broker's live state, and editing a row by hand corrupts the queue — clearing
-the `worker_id` of a claimed message, say, gets it delivered twice.
+**Jobs** opens on an overview — counters for queued, running and failed, and a
+per-queue breakdown — over a list showing the actor, retry count, relative
+time and the worker holding each message. Filter by state, queue, or whether a
+job is ready now vs. scheduled for later. The detail page renders the
+parameters as a table, the stored result, and the traceback of a failure.
 
-What the admin shows is **pending work and failures, not task history**. A
-message is deleted as soon as it is acknowledged, so successfully processed
-tasks never accumulate; rejected ones stay until `purge_maxage`. Results
-appear only for actors declared with `store_results=True`.
+**Workers** counts live and dead processes, and flags **orphan jobs**: messages
+still marked running on a worker whose heartbeat lapsed. Nothing is executing
+them until broker maintenance requeues them. A worker's page lists what it is
+currently holding.
 
-The models are unmanaged and read the configured `schema`/`prefix`, so they
-follow a customized deployment. `makemigrations` never generates anything for
-them — the tables come from this app's migration.
+**Results** keeps the return value of actors declared with
+`store_results=True`. It outlives the job — the queue row is deleted on ack —
+so it is where a completed task's output stays visible.
+
+Two actions operate on jobs: **Requeue** (clears the retry counter and old
+traceback, so the job gets its full cycle again) and **Discard**. Both skip
+`consumed` jobs with a warning: a worker owns that message right now, and
+requeuing or deleting it would run the task twice. Nothing else is editable —
+these tables are the broker's live state.
+
+What the list shows is **pending work and failures, not task history**. A
+message is deleted as soon as it is acknowledged, so successful tasks do not
+accumulate; rejected ones stay until `purge_maxage`.
+
+The models are unmanaged and follow the configured `schema`/`prefix`, so
+`makemigrations` never generates anything for them. UI strings are
+translatable, and a Brazilian Portuguese catalog ships with the package.
 
 ### Migrating from django_dramatiq
 

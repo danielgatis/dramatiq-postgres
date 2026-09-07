@@ -80,10 +80,10 @@ class DramatiqPostgresConfig(AppConfig):
         if not schema and not prefix:
             return
 
-        from .models import Message, Result, Worker, table_name
+        from .models import Job, Result, Worker, table_name
 
         for model, name in (
-            (Message, "queue"),
+            (Job, "queue"),
             (Worker, "worker"),
             (Result, "result"),
         ):
