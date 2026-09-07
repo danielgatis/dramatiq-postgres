@@ -93,6 +93,27 @@ connections are refreshed around each message and closed on shutdown —
 workers are long-lived threads with no request cycle to do it for them. List
 it in `MIDDLEWARE` explicitly to control its position.
 
+### Admin
+
+With `django.contrib.admin` installed, the broker tables show up in the admin
+as **Messages**, **Workers** and **Results**. Messages list the actor, args,
+retry count and the traceback of a rejected message, filterable by state and
+queue; workers are flagged `alive`/`dead` against the broker's
+`heartbeat_ttl`.
+
+Everything is read-only, including bulk actions: these tables are the
+broker's live state, and editing a row by hand corrupts the queue — clearing
+the `worker_id` of a claimed message, say, gets it delivered twice.
+
+What the admin shows is **pending work and failures, not task history**. A
+message is deleted as soon as it is acknowledged, so successfully processed
+tasks never accumulate; rejected ones stay until `purge_maxage`. Results
+appear only for actors declared with `store_results=True`.
+
+The models are unmanaged and read the configured `schema`/`prefix`, so they
+follow a customized deployment. `makemigrations` never generates anything for
+them — the tables come from this app's migration.
+
 ### Migrating from django_dramatiq
 
 1. Replace `django_dramatiq` with `dramatiq_postgres.django` in

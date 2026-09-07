@@ -63,5 +63,28 @@ class DramatiqPostgresConfig(AppConfig):
             alias = config.get("DATABASE_ALIAS", "default")
             options["url"] = connection_kwargs(alias)
 
+        self._retarget_models(options)
+
         self.broker = PostgresBroker(**options)
         dramatiq.set_broker(self.broker)
+
+    @staticmethod
+    def _retarget_models(options):
+        """Point the introspection models at the configured schema/prefix.
+
+        Their Meta carries the stock table name, since a model's table has to
+        be known before settings are available.
+        """
+        schema = options.get("schema")
+        prefix = options.get("prefix")
+        if not schema and not prefix:
+            return
+
+        from .models import Message, Result, Worker, table_name
+
+        for model, name in (
+            (Message, "queue"),
+            (Worker, "worker"),
+            (Result, "result"),
+        ):
+            model._meta.db_table = table_name(name, schema, prefix)
